@@ -1,5 +1,10 @@
+import os
 from typing import List
 from pydantic_settings import BaseSettings
+
+# Resolve .env relative to __file__ so it works from any CWD.
+# backend/config/__init__.py -> two levels up = project root
+_env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
 
 
 class Settings(BaseSettings):
@@ -61,7 +66,7 @@ class Settings(BaseSettings):
     def cors_origins(self) -> List[str]:
         return [o.strip() for o in self.allowed_origins_raw.split(",") if o.strip()]
 
-    model_config = {"env_file": ".env", "extra": "ignore"}
+    model_config = {"env_file": _env_file, "extra": "ignore"}
 
 
 settings = Settings()
