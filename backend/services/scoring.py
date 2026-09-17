@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
-from backend.config import settings
+from config import settings
 
 
 @dataclass(frozen=True)

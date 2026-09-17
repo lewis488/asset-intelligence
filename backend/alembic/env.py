@@ -4,12 +4,12 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
-# Add the project root (parent of backend/) to sys.path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+# Add backend/ (parent of alembic/) to sys.path so flat imports resolve
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from backend.database import Base  # noqa: E402
-import backend.models.user  # noqa: F401, E402
-import backend.models.asset  # noqa: F401, E402
+from database import Base  # noqa: E402
+import models.user  # noqa: F401, E402
+import models.asset  # noqa: F401, E402
 
 config = context.config
 fileConfig(config.config_file_name)

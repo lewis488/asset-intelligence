@@ -5,13 +5,13 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from backend.database import get_db
-from backend.models.asset import AnalysisRun, Asset, RiskScore
-from backend.models.user import User
-from backend.routers.auth import get_current_user
-from backend.schemas.asset import AnalysisRunOut, QueryRequest, QueryResponse
-from backend.services.llm import answer_query, generate_analysis, generate_vaisala_section_narrative
-from backend.config import settings
+from database import get_db
+from models.asset import AnalysisRun, Asset, RiskScore
+from models.user import User
+from routers.auth import get_current_user
+from schemas.asset import AnalysisRunOut, QueryRequest, QueryResponse
+from services.llm import answer_query, generate_analysis, generate_vaisala_section_narrative
+from config import settings
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ def _build_scored_assets(authority_id: int, db: Session) -> tuple[list[dict], di
     Score all assets for an authority and return:
       (scored_list sorted by composite_score desc, stats_dict)
     """
-    from backend.routers.assets import _score_asset  # avoid circular at module level
+    from routers.assets import _score_asset  # avoid circular at module level
     from sqlalchemy import text as _text
 
     assets = db.query(Asset).filter(Asset.authority_id == authority_id).all()
@@ -122,7 +122,7 @@ def _build_scored_assets(authority_id: int, db: Session) -> tuple[list[dict], di
     # Runs after stats is built; uses SQL aggregates to avoid loading all rows.
     try:
         from sqlalchemy import func as _func, case as _case
-        from backend.models.vaisala import VaisalaSurvey as _VS, VaisalaSection as _VSec
+        from models.vaisala import VaisalaSurvey as _VS, VaisalaSection as _VSec
 
         latest_vaisala = (
             db.query(_VS)
@@ -309,8 +309,8 @@ def asset_narrative(
 ):
     """Generate a 3–4 sentence AI narrative for a single asset. Cached per asset per day."""
     from datetime import date as _date
-    from backend.routers.assets import _score_asset
-    from backend.services.llm import generate_asset_narrative
+    from routers.assets import _score_asset
+    from services.llm import generate_asset_narrative
 
     cache_key = (nsg_ref, current_user.authority_id, _date.today().isoformat())
     if cache_key in _narrative_cache:
@@ -397,7 +397,7 @@ def vaisala_section_narrative(
 ):
     """Generate a 3–4 sentence AI assessment for a single Vaisala section. Cached per section per day."""
     from datetime import date as _date
-    from backend.models.vaisala import VaisalaSection as _VSec, VaisalaSurvey as _VS
+    from models.vaisala import VaisalaSection as _VSec, VaisalaSurvey as _VS
 
     cache_key = ("vaisala", section_id, current_user.authority_id, _date.today().isoformat())
     if cache_key in _narrative_cache:

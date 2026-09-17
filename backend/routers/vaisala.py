@@ -8,9 +8,9 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from backend.database import get_db
-from backend.models.user import User
-from backend.models.vaisala import (
+from database import get_db
+from models.user import User
+from models.vaisala import (
     VaisalaDefectWeight,
     VaisalaDefectWeightSet,
     VaisalaInterval,
@@ -21,15 +21,15 @@ from backend.models.vaisala import (
     VaisalaSurvey,
     VaisalaSection,
 )
-from backend.routers.auth import get_current_user
-from backend.schemas.vaisala import (
+from routers.auth import get_current_user
+from schemas.vaisala import (
     PaginatedVaisalaSections,
     VaisalaSectionOut,
     VaisalaStats,
     VaisalaSurveyOut,
     VaisalaUploadResult,
 )
-from backend.services.vaisala_scoring import (
+from services.vaisala_scoring import (
     NETWORK_CONFIGS,
     RAG_DERIVATION_NOTE,
     RAG_VALIDATED_WEIGHTS,

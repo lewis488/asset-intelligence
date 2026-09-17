@@ -9,12 +9,12 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from backend.database import get_db
-from backend.models.asset import Asset, CviRecord, ReactiveJob, ScannerRecord
-from backend.models.user import User
-from backend.routers.auth import get_current_user
-from backend.schemas.asset import AssetWithScore, IngestionResult, PaginatedAssets
-from backend.services.ingestion import (
+from database import get_db
+from models.asset import Asset, CviRecord, ReactiveJob, ScannerRecord
+from models.user import User
+from routers.auth import get_current_user
+from schemas.asset import AssetWithScore, IngestionResult, PaginatedAssets
+from services.ingestion import (
     SCANNER_CSV_COLUMNS,
     get_alias_reference,
     parse_cvi_csv,
@@ -22,15 +22,15 @@ from backend.services.ingestion import (
     parse_scanner_csv,
     parse_scanner_excel,
 )
-from backend.models.asset import CviRawRecord, ScrimRecord, ScannerRawRecord
-from backend.models.asset import ReactiveJobRecord, ReactiveAggregate
-from backend.models.asset import NetworkAsset
-from backend.services.ingestion import parse_cvi_raw, parse_scanner_raw, parse_scrim_raw
-from backend.services.ingestion import parse_reactive_raw
-from backend.services.ingestion import parse_network_file
-from backend.schemas.asset import RawIngestionResult, ReactiveRawIngestionResult, NetworkIngestionResult
-from backend.services.validation import DatasetValidator, read_tabular_for_validation, read_network_for_validation
-from backend.dataset_schemas import (
+from models.asset import CviRawRecord, ScrimRecord, ScannerRawRecord
+from models.asset import ReactiveJobRecord, ReactiveAggregate
+from models.asset import NetworkAsset
+from services.ingestion import parse_cvi_raw, parse_scanner_raw, parse_scrim_raw
+from services.ingestion import parse_reactive_raw
+from services.ingestion import parse_network_file
+from schemas.asset import RawIngestionResult, ReactiveRawIngestionResult, NetworkIngestionResult
+from services.validation import DatasetValidator, read_tabular_for_validation, read_network_for_validation
+from dataset_schemas import (
     SCANNER_RAW_SCHEMA, CVI_RAW_SCHEMA, SCRIM_RAW_SCHEMA,
     REACTIVE_RAW_SCHEMA, NETWORK_SHP_SCHEMA,
 )

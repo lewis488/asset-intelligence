@@ -9,11 +9,11 @@ import io
 import sys
 import os
 
-# Ensure the project root is on the path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+# Ensure backend/ is on the path
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import pandas as pd
-from backend.services.ingestion import parse_scanner_raw, parse_cvi_raw, parse_scrim_raw
+from services.ingestion import parse_scanner_raw, parse_cvi_raw, parse_scrim_raw
 
 
 def make_csv(df: pd.DataFrame) -> bytes:

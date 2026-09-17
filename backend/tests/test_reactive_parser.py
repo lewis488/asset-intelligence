@@ -12,10 +12,10 @@ import sys
 import os
 from datetime import datetime, date
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import pandas as pd
-from backend.services.ingestion import parse_reactive_raw
+from services.ingestion import parse_reactive_raw
 
 
 def make_csv(df: pd.DataFrame) -> bytes:

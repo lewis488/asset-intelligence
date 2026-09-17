@@ -7,8 +7,8 @@ No data is written anywhere; these are pure unit tests.
 import pandas as pd
 import pytest
 
-from backend.dataset_schemas import SCANNER_RAW_SCHEMA
-from backend.services.validation import DatasetValidator
+from dataset_schemas import SCANNER_RAW_SCHEMA
+from services.validation import DatasetValidator
 
 validator = DatasetValidator()
 

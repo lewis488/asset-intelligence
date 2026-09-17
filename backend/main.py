@@ -3,8 +3,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from backend.config import settings
-from backend.routers import auth as auth_router, assets, analysis, vaisala as vaisala_router
+from config import settings
+from routers import auth as auth_router, assets, analysis, vaisala as vaisala_router
 
 logging.basicConfig(
     level=logging.INFO if settings.environment != "production" else logging.WARNING,

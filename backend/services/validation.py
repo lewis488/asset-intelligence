@@ -15,7 +15,7 @@ from typing import Optional
 
 import pandas as pd
 
-from backend.dataset_schemas import ColumnSpec, DatasetSchema
+from dataset_schemas import ColumnSpec, DatasetSchema
 
 logger = logging.getLogger(__name__)
 

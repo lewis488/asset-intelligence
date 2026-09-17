@@ -15,8 +15,8 @@ from typing import Optional
 
 import anthropic
 
-from backend.config import settings
-from backend.services.knowledge import ALL_KNOWLEDGE
+from config import settings
+from services.knowledge import ALL_KNOWLEDGE
 
 logger = logging.getLogger(__name__)
 
