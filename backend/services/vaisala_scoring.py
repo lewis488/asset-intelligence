@@ -262,7 +262,7 @@ def _aggregate_intervals(df: pd.DataFrame, network_key: str, weights: dict[str, 
     rsc_class_col = _find_col(cols, ["RSC_CLASS", "Road surface condition class"])
     asphalt_col   = _find_col(cols, ["ASPHALT", "Asphalt condition", "Asphalt Condition"])
     asphalt_class_col = _find_col(cols, ["ASPH_CLSS", "Asphalt condition class"])
-    pas_col       = _find_col(cols, ["PAS2161", "PAS2161 Category", "PAS 2161"])
+    pas_col       = _find_col(cols, ["PAS2161", "PAS2161 Category", "PAS 2161", "PAS 2161 RCM category", "PAS 2161 RCM Category"])
     from_col      = _find_col(cols, ["Chainage Start", "ChaStart", "From", "FROM", "StartCH", "STARTM", "Start", "from_m"])
     to_col        = _find_col(cols, ["Chainage End", "ChaEnd", "To", "TO", "EndCH", "ENDM", "End", "to_m"])
     time_col      = _find_col(cols, ["Time UTC", "Time (UTC)", "TIME_UTC", "Date Time", "DateTime", "Timestamp"])
