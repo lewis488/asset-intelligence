@@ -3,8 +3,8 @@ from typing import List
 from pydantic_settings import BaseSettings
 
 # Resolve .env relative to __file__ so it works from any CWD.
-# backend/config/__init__.py -> two levels up = project root
-_env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+# backend/config/__init__.py -> three levels up = project root (config/ -> backend/ -> root)
+_env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), ".env")
 
 
 class Settings(BaseSettings):
