@@ -1,0 +1,39 @@
+# Environment / secrets
+.env
+.env.local
+.env.production
+*.env
+!.env.example
+!frontend/.env.example
+
+# Python
+backend/.venv/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# OS/editor
+.DS_Store
+.vscode/
+*.swp
+
+# Dev server logs
+uvicorn_*.txt
+vite_*.txt
+
+# Vaisala handoff — contains real WSCC data references
+vaisala_dst_handoff.zip
+vaisala_dst_handoff/
+
+# Claude Code local settings (keep .claude/agents/ and
+# .claude/settings.json versioned — only ignore local overrides)
+.claude/settings.local.json
