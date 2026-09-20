@@ -1,39 +1,36 @@
 # Technical Debt
 
-## Two Scoring Models: RoadIQ+ (Confirm) and RoadIQ (Vaisala)
+## Two RoadIQ+ Implementations: Production and Standalone/Experimental
 
 **Severity: Low — intentional architecture, not a defect.**
 
-The platform has two deliberately independent scoring models at this build stage:
+The RoadIQ+ model has two implementations at this build stage — a live production scorer and a standalone/experimental variant. Both operate on Confirm-format data. They are NOT a drifted copy of the same logic; they diverge by design.
 
-### RoadIQ+ model: `routers/assets.py:_score_asset()` (lines 46–276)
+### RoadIQ+ production: `routers/assets.py:_score_asset()` (lines 46–276)
 Built for Confirm-format datasets (SCANNER raw 10m, CVI raw, SCRIM raw, reactive aggregates, network geometry).
 - Live production scorer. Called by `GET /assets/`, `GET /assets/export`, `POST /analysis/run`.
 - Four components: SCANNER (0–60 pts), CVI (0–65 pts), SCRIM (0–30 pts), reactive (0–30 pts).
 - Coupled to SQLAlchemy session — queries DB directly.
 
-### RoadIQ model: `services/vaisala_scoring.py`
-Built exclusively for Vaisala RoadAI data (XLSX/CSV/SHP).
-- Operates as a separate DST module with its own RAG classification and treatment decision tree.
-- No overlap with RoadIQ+ composite. Not combined into a single score at this stage.
-
-### Standalone/experimental: `services/scoring.py`
-A standalone version of RoadIQ+ scoring logic. NOT called by the production API.
+### RoadIQ+ standalone/experimental: `services/scoring.py`
+A standalone RoadIQ+ variant with defect driver analysis. NOT called by the production API.
 - `compute_scanner_score()`, `compute_cvi_score()`, `no_data_score()`.
-- Uses defect driver analysis (requires `ci_contribution_*` columns from HMDIF Excel) — more sophisticated than the live `_score_asset()` formula.
+- Uses `ci_contribution_*` columns (Confirm HMDIF Excel) for defect driver analysis — rutting, cracking, texture, LPV proportions drive treatment selection.
 - All weights env-configurable via `config.settings`.
 - No SCRIM component.
 - Clean, no FastAPI or SQLAlchemy imports — designed to be separable.
 
-These are NOT a drifted copy of the same intended model. `scoring.py` has a materially different input set (`ci_contribution_*` defect proportions) and different scoring logic (defect driver analysis, EDI). `_score_asset()` covers SCRIM and uses simpler RCI-band-based arithmetic. They diverge by design.
+`scoring.py` has a materially different input set (`ci_contribution_*` defect proportions from HMDIF Excel) and different scoring logic (defect driver analysis, EDI). `_score_asset()` covers SCRIM and uses simpler RCI-band-based arithmetic. Both are Confirm-format. Neither is a Vaisala model.
+
+**Note:** `services/vaisala_scoring.py` is a third, entirely separate model (RoadIQ) for Vaisala RoadAI data. It is not part of this two-implementation comparison. See business-logic.md § Vaisala Business Logic.
 
 ### Genuine side-effect worth noting (Low severity)
 `config.settings` exposes env vars for defect driver weights (`DD_LPV_POINTS`, `DD_RUTTING_POINTS`, etc.) that feed `scoring.py` but have no connection to `_score_asset()`. Tuning these env vars has no effect on live scores. This is not a bug — it reflects `scoring.py` being standalone — but it could mislead a future developer who reads the config and assumes these weights affect production output.
 
 ### Roadmap item (not debt)
-Future unification: linking RoadIQ (Vaisala) and RoadIQ+ (Confirm) data so treatment selection and programme costing draw on both models jointly. At that point `scoring.py`'s defect driver logic and `vaisala_scoring.py`'s treatment tree would feed a single composite recommendation layer. This is a planned next stage of development, not a defect fix.
+Future unification: linking RoadIQ (`vaisala_scoring.py`) and RoadIQ+ (`_score_asset()`) data so treatment selection and programme costing draw on both models jointly. At that point `scoring.py`'s defect driver logic and `vaisala_scoring.py`'s treatment tree would feed a single composite recommendation layer. This is a planned next stage of development, not a defect fix.
 
-Cross-reference: business-logic.md § Two Scoring Models.
+Cross-reference: business-logic.md § Two RoadIQ+ Implementations.
 
 ---
 

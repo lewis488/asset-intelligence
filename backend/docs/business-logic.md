@@ -25,19 +25,19 @@ All data is authority-scoped. Every DB query filters by `authority_id`. No cross
 
 NSG reference links all datasets. Leading zeros are stripped on ingest and normalised to plain string. All join operations between survey data and network geometry use `nsg_ref`. Mismatches between NSG formats across data sources are the primary cause of low coverage scores.
 
-## Two Scoring Models
+## Two RoadIQ+ Implementations
 
-The platform has two deliberately independent scoring models:
+The RoadIQ+ model (Confirm-format data) has two implementations. RoadIQ (Vaisala) is a third, separate model:
 
 | Model | File | Data source | Status |
 |-------|------|-------------|--------|
-| **RoadIQ+** | `routers/assets.py:_score_asset()` | Confirm datasets (SCANNER, CVI, SCRIM, reactive, network) | Live production |
-| **RoadIQ** | `services/vaisala_scoring.py` | Vaisala RoadAI XLSX/CSV/SHP | Live production |
-| Standalone | `services/scoring.py` | Same inputs as RoadIQ+ | Not called by production API; standalone/experimental |
+| **RoadIQ+** (production) | `routers/assets.py:_score_asset()` | Confirm datasets (SCANNER, CVI, SCRIM, reactive, network) | Live production |
+| **RoadIQ+** (standalone) | `services/scoring.py` | Confirm HMDIF SCANNER (`ci_contribution_*` columns) | Not called by production API; standalone/experimental |
+| **RoadIQ** | `services/vaisala_scoring.py` | Vaisala RoadAI XLSX/CSV/SHP | Live production, separate module |
 
-RoadIQ and RoadIQ+ are intentionally separate at this build stage. Future roadmap item: unify so treatment selection and programme costing draw on both models jointly. See technical-debt.md § Two Scoring Models.
+The two RoadIQ+ implementations are intentionally different at this build stage — `scoring.py` uses defect driver analysis requiring `ci_contribution_*` columns from HMDIF Excel, which `_score_asset()` does not use. `_score_asset()` includes a full SCRIM component (0–30 pts) that `scoring.py` lacks. They diverge by design, not drift. Env-configurable weights in `scoring.py` (`DD_LPV_POINTS` etc.) do not affect live production scores.
 
-`services/scoring.py` is a standalone version of RoadIQ+ with more sophisticated defect driver analysis (requires `ci_contribution_*` columns). It is not a drifted copy of `_score_asset()` — it uses different inputs and different logic. Env-configurable weights in `scoring.py` (`DD_LPV_POINTS` etc.) do not affect live production scores.
+RoadIQ (`services/vaisala_scoring.py`) is an entirely separate model for Vaisala RoadAI data. It is not a variant of RoadIQ+ and shares no code path with either RoadIQ+ implementation. Future roadmap item: unify RoadIQ and RoadIQ+ so treatment selection and programme costing draw on both models jointly. See technical-debt.md § Two RoadIQ+ Implementations.
 
 ## RoadIQ+ Composite Scoring (Production — _score_asset)
 
