@@ -25,11 +25,25 @@ All data is authority-scoped. Every DB query filters by `authority_id`. No cross
 
 NSG reference links all datasets. Leading zeros are stripped on ingest and normalised to plain string. All join operations between survey data and network geometry use `nsg_ref`. Mismatches between NSG formats across data sources are the primary cause of low coverage scores.
 
-## Composite Risk Scoring (Production — _score_asset)
+## Two Scoring Models
+
+The platform has two deliberately independent scoring models:
+
+| Model | File | Data source | Status |
+|-------|------|-------------|--------|
+| **RoadIQ+** | `routers/assets.py:_score_asset()` | Confirm datasets (SCANNER, CVI, SCRIM, reactive, network) | Live production |
+| **RoadIQ** | `services/vaisala_scoring.py` | Vaisala RoadAI XLSX/CSV/SHP | Live production |
+| Standalone | `services/scoring.py` | Same inputs as RoadIQ+ | Not called by production API; standalone/experimental |
+
+RoadIQ and RoadIQ+ are intentionally separate at this build stage. Future roadmap item: unify so treatment selection and programme costing draw on both models jointly. See technical-debt.md § Two Scoring Models.
+
+`services/scoring.py` is a standalone version of RoadIQ+ with more sophisticated defect driver analysis (requires `ci_contribution_*` columns). It is not a drifted copy of `_score_asset()` — it uses different inputs and different logic. Env-configurable weights in `scoring.py` (`DD_LPV_POINTS` etc.) do not affect live production scores.
+
+## RoadIQ+ Composite Scoring (Production — _score_asset)
 
 **File:** `routers/assets.py:_score_asset()` (lines 46–276)
 
-This is the live production scorer. It queries DB, combines all available data, and returns a scored dict. Called on every `GET /assets/` request.
+Live production scorer for Confirm-format datasets. Queries DB, combines all available data, returns a scored dict. Called on every `GET /assets/` request.
 
 Four components, all optional (score is 0 if dataset absent):
 
@@ -68,7 +82,7 @@ Four components, all optional (score is 0 if dataset absent):
 
 **Score completeness:** count(datasets_present) / 4 × 100. Low completeness = low confidence in score.
 
-**IMPORTANT — Dual Scoring Discrepancy:** A separate scoring engine exists in `services/scoring.py` (`compute_scanner_score`, `compute_cvi_score`). It uses different scales (0–100 for SCANNER, no SCRIM component) and different formulas. `_score_asset()` is what runs in production. `scoring.py` does NOT drive live scores. See technical-debt.md for full details.
+**Note — standalone scoring.py:** `services/scoring.py` is a standalone version of RoadIQ+ with defect driver analysis. It uses different inputs and a different formula — not a copy of `_score_asset()`. It does not drive live scores. See technical-debt.md § Two Scoring Models.
 
 ## Treatment Recommendations (Production)
 

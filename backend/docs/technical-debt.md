@@ -1,42 +1,39 @@
 # Technical Debt
 
-## Critical: Two Scoring Implementations Not in Sync
+## Two Scoring Models: RoadIQ+ (Confirm) and RoadIQ (Vaisala)
 
-**Severity: High. Material for IP/due-diligence review.**
+**Severity: Low — intentional architecture, not a defect.**
 
-Two separate composite scoring implementations exist and have diverged:
+The platform has two deliberately independent scoring models at this build stage:
 
-### Implementation 1: `services/scoring.py`
-- Functions: `compute_scanner_score()`, `compute_cvi_score()`, `no_data_score()`
-- Returns `ScoringResult` dataclass
-- SCANNER max: 100 pts (CI 0–40, defect driver 0–30, EDI 0–15, reactive 0–15)
-- CVI max: 95 pts (structural/edge/WC domain points + reactive)
-- All weights env-configurable via `config.settings`
-- No SCRIM component
-- Clean, standalone — no FastAPI or SQLAlchemy imports
+### RoadIQ+ model: `routers/assets.py:_score_asset()` (lines 46–276)
+Built for Confirm-format datasets (SCANNER raw 10m, CVI raw, SCRIM raw, reactive aggregates, network geometry).
+- Live production scorer. Called by `GET /assets/`, `GET /assets/export`, `POST /analysis/run`.
+- Four components: SCANNER (0–60 pts), CVI (0–65 pts), SCRIM (0–30 pts), reactive (0–30 pts).
+- Coupled to SQLAlchemy session — queries DB directly.
 
-### Implementation 2: `routers/assets.py:_score_asset()` (lines 46–276)
-- **This is what the production API actually uses**
-- Called by `GET /assets/`, `GET /assets/export`, `POST /analysis/run`
-- SCANNER max: 60 pts (different formula)
-- CVI max: 65 pts (different formula)
-- SCRIM max: 30 pts (not in scoring.py at all)
-- Reactive max: 30 pts (different formula)
-- Composite max: 185 pts (theoretically)
-- Risk bands different: Critical ≥ 65 (vs configurable in scoring.py)
-- Weights NOT env-configurable in _score_asset() — hardcoded arithmetic
-- Tightly coupled to SQLAlchemy session
+### RoadIQ model: `services/vaisala_scoring.py`
+Built exclusively for Vaisala RoadAI data (XLSX/CSV/SHP).
+- Operates as a separate DST module with its own RAG classification and treatment decision tree.
+- No overlap with RoadIQ+ composite. Not combined into a single score at this stage.
 
-### Impact
-- `scoring.py` appears in architecture docs and README as "the scoring engine" but does not drive live scores
-- Any tuning of `settings` weights (e.g., `DD_LPV_POINTS`) has no effect on what users actually see
-- Treatment recommendations diverge between the two implementations
-- An external reviewer auditing scoring.py is examining dead code
+### Standalone/experimental: `services/scoring.py`
+A standalone version of RoadIQ+ scoring logic. NOT called by the production API.
+- `compute_scanner_score()`, `compute_cvi_score()`, `no_data_score()`.
+- Uses defect driver analysis (requires `ci_contribution_*` columns from HMDIF Excel) — more sophisticated than the live `_score_asset()` formula.
+- All weights env-configurable via `config.settings`.
+- No SCRIM component.
+- Clean, no FastAPI or SQLAlchemy imports — designed to be separable.
 
-### Resolution path
-Either: (a) retire `scoring.py` and document `_score_asset()` as canonical, or (b) refactor `_score_asset()` to call `scoring.py` functions. Option (b) is architecturally correct but requires adding SCRIM to `scoring.py` and decoupling from SQLAlchemy session.
+These are NOT a drifted copy of the same intended model. `scoring.py` has a materially different input set (`ci_contribution_*` defect proportions) and different scoring logic (defect driver analysis, EDI). `_score_asset()` covers SCRIM and uses simpler RCI-band-based arithmetic. They diverge by design.
 
-Cross-reference: business-logic.md § Composite Risk Scoring Model.
+### Genuine side-effect worth noting (Low severity)
+`config.settings` exposes env vars for defect driver weights (`DD_LPV_POINTS`, `DD_RUTTING_POINTS`, etc.) that feed `scoring.py` but have no connection to `_score_asset()`. Tuning these env vars has no effect on live scores. This is not a bug — it reflects `scoring.py` being standalone — but it could mislead a future developer who reads the config and assumes these weights affect production output.
+
+### Roadmap item (not debt)
+Future unification: linking RoadIQ (Vaisala) and RoadIQ+ (Confirm) data so treatment selection and programme costing draw on both models jointly. At that point `scoring.py`'s defect driver logic and `vaisala_scoring.py`'s treatment tree would feed a single composite recommendation layer. This is a planned next stage of development, not a defect fix.
+
+Cross-reference: business-logic.md § Two Scoring Models.
 
 ---
 
