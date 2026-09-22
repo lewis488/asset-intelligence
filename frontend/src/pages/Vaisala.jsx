@@ -3,7 +3,9 @@ import 'leaflet/dist/leaflet.css'
 import api, { vaisalaApi } from '../api/client'
 import VaisalaSectionDetailPanel from '../components/VaisalaSectionDetailPanel'
 
-const RAG_COLOUR = { Red: '#c0432f', Amber: '#d9a51c', Green: '#3a7d44' }
+const RAG_COLOUR    = { Red: '#C0453A', Amber: '#D89A3D', Green: '#4A8B6F' }
+const RAG_COLOUR_BG = { Red: '#FBEAE8', Amber: '#FCF3E3', Green: '#EBF3EE' }
+const RAG_COLOUR_TX = { Red: '#B0483C', Amber: '#B87A1E', Green: '#4A7A62' }
 const NETWORKS = [
   { value: 'stroud', label: 'Gloucestershire / Stroud' },
   { value: 'wscc',   label: 'West Sussex (WSCC)' },
@@ -61,23 +63,23 @@ function RagStrip({ stats }) {
   if (!stats) return null
   const total = stats.section_count || 1
   return (
-    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20 }}>
+    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
       {['Red', 'Amber', 'Green'].map(band => {
         const count = stats.rag_counts?.[band] ?? 0
         const km = stats.rag_length_km?.[band] ?? 0
         const pct = ((count / total) * 100).toFixed(1)
         return (
-          <div key={band} className="card" style={{ flex: '1 1 160px', borderTop: `4px solid ${RAG_COLOUR[band]}`, padding: '14px 18px' }}>
-            <div style={{ fontSize: 26, fontWeight: 700, color: RAG_COLOUR[band] }}>{count}</div>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>{band}</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>{km} km · {pct}%</div>
+          <div key={band} className="card" style={{ flex: '1 1 160px', borderTop: `3px solid ${RAG_COLOUR[band]}`, padding: '14px 18px' }}>
+            <div style={{ fontSize: 26, fontWeight: 500, color: RAG_COLOUR_TX[band] }}>{count}</div>
+            <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text)', marginTop: 2 }}>{band}</div>
+            <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 2 }}>{km} km · {pct}%</div>
           </div>
         )
       })}
       <div className="card" style={{ flex: '1 1 160px', padding: '14px 18px' }}>
-        <div style={{ fontSize: 26, fontWeight: 700 }}>{stats.total_length_km}</div>
-        <div style={{ fontSize: 13, fontWeight: 600 }}>Total km</div>
-        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{total} sections</div>
+        <div style={{ fontSize: 26, fontWeight: 500, color: 'var(--color-text)' }}>{stats.total_length_km}</div>
+        <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text)', marginTop: 2 }}>Total km</div>
+        <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 2 }}>{total} sections</div>
       </div>
     </div>
   )
@@ -96,7 +98,7 @@ function DriftWarning({ survey }) {
 function DirectionNote({ children }) {
   return (
     <div style={{ fontSize: 12, color: 'var(--color-text-muted)', fontStyle: 'italic', marginBottom: 12,
-      padding: '8px 12px', background: 'var(--color-surface)', borderRadius: 6, borderLeft: '3px solid var(--color-border-strong)' }}>
+      padding: '8px 12px', background: 'var(--color-accent-soft)', borderRadius: 6, borderLeft: '3px solid var(--color-accent)' }}>
       {children}
     </div>
   )
@@ -271,33 +273,33 @@ function UploadPanel({ onUploaded }) {
 
   return (
     <div className="card" style={{ marginBottom: 24 }}>
-      <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Upload Vaisala Survey</h2>
+      <h2 style={{ fontSize: 14, fontWeight: 500, marginBottom: 16, color: 'var(--color-text)' }}>Upload Vaisala Survey</h2>
 
       {/* Controls */}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
         <div>
-          <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Network</label>
+          <label style={{ fontSize: 10, color: 'var(--color-text-muted)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 500 }}>Network</label>
           <select value={network} onChange={e => setNetwork(e.target.value)} disabled={busy}
-            style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)', fontSize: 13 }}>
+            style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-page)', color: 'var(--color-text)', fontSize: 13 }}>
             {NETWORKS.map(n => <option key={n.value} value={n.value}>{n.label}</option>)}
           </select>
         </div>
         <div>
-          <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>File type</label>
+          <label style={{ fontSize: 10, color: 'var(--color-text-muted)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 500 }}>File type</label>
           <select value={mode} onChange={e => { setMode(e.target.value); reset() }} disabled={busy}
-            style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)', fontSize: 13 }}>
+            style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-page)', color: 'var(--color-text)', fontSize: 13 }}>
             <option value="raw">Raw interval data (XLSX / CSV) — scored here</option>
             <option value="shp">Scored SHP export from priority_dst.html (ZIP)</option>
           </select>
         </div>
         {mode === 'raw' && (
           <div>
-            <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>
+            <label style={{ fontSize: 10, color: 'var(--color-text-muted)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 500 }}>
               Multiple passes
             </label>
             <select value={dedupStrategy} onChange={e => setDedupStrategy(e.target.value)} disabled={busy}
               title="When a section-interval was surveyed on multiple passes, resolve by keeping most recent (Time UTC) or leave duplicates in."
-              style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text)', fontSize: 13 }}>
+              style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-page)', color: 'var(--color-text)', fontSize: 13 }}>
               <option value="latest">Keep most recent (Time UTC)</option>
               <option value="none">Don't deduplicate</option>
             </select>
@@ -478,20 +480,17 @@ function UploadPanel({ onUploaded }) {
 // ─── Tab bar ──────────────────────────────────────────────────────────────
 function TabBar({ activeTab, onChange }) {
   return (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
+    <div className="tab-row">
       {TABS.map(t => {
         const active = activeTab === t.key
         return (
-          <button key={t.key} onClick={() => onChange(t.key)}
-            style={{
-              padding: '8px 14px', borderRadius: 8, border: `1px solid ${active ? 'var(--color-blue)' : 'var(--border)'}`,
-              background: active ? 'var(--color-blue)' : 'transparent',
-              color: active ? '#fff' : 'var(--text)', cursor: 'pointer', fontSize: 13,
-              lineHeight: 1.3, textAlign: 'left',
-            }}>
-            <div style={{ fontSize: 10, opacity: 0.75, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{t.tag}</div>
-            <div style={{ fontWeight: 600 }}>{t.name}</div>
-            <div style={{ fontSize: 11, opacity: 0.8 }}>{t.desc}</div>
+          <button
+            key={t.key}
+            onClick={() => onChange(t.key)}
+            title={`${t.tag} · ${t.desc}`}
+            className={`tab-btn${active ? ' tab-btn--active' : ''}`}
+          >
+            {t.name}
           </button>
         )
       })}
@@ -508,24 +507,20 @@ const MERGE_SCALES = [
 function MergeScaleToggle({ value, onChange, disabledScales = [] }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Merge scale</span>
-      <div style={{ display: 'flex', gap: 4 }}>
+      <span style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 500 }}>Merge scale</span>
+      <div className="seg-control">
         {MERGE_SCALES.map(s => {
           const active = s.key === value
           const disabled = disabledScales.includes(s.key)
           return (
-            <button key={s.key} onClick={() => !disabled && onChange(s.key)}
+            <button
+              key={s.key}
+              onClick={() => !disabled && onChange(s.key)}
               disabled={disabled}
               title={disabled ? 'Urban always scores at whole section length' : s.desc}
-              style={{
-                padding: '4px 10px', borderRadius: 6,
-                border: `1px solid ${active ? 'var(--color-blue)' : 'var(--border)'}`,
-                background: active ? 'var(--color-blue)' : 'transparent',
-                color: active ? '#fff' : 'var(--text)',
-                cursor: disabled ? 'not-allowed' : 'pointer', fontSize: 12,
-                fontFamily: 'var(--font-data, monospace)',
-                opacity: disabled ? 0.3 : 1,
-              }}>
+              className={`seg-btn${active ? ' seg-btn--active' : ''}`}
+              style={{ opacity: disabled ? 0.35 : 1, cursor: disabled ? 'not-allowed' : 'pointer' }}
+            >
               {s.label}
             </button>
           )
@@ -544,20 +539,17 @@ const SPLITS = [
 function SplitToggle({ value, onChange }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Split</span>
-      <div style={{ display: 'flex', gap: 4 }}>
+      <span style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 500 }}>Split</span>
+      <div className="seg-control">
         {SPLITS.map(s => {
           const active = s.key === value
           return (
-            <button key={s.key} onClick={() => onChange(s.key)}
+            <button
+              key={s.key}
+              onClick={() => onChange(s.key)}
               title={s.desc}
-              style={{
-                padding: '4px 10px', borderRadius: 6,
-                border: `1px solid ${active ? 'var(--color-blue)' : 'var(--border)'}`,
-                background: active ? 'var(--color-blue)' : 'transparent',
-                color: active ? '#fff' : 'var(--text)', cursor: 'pointer', fontSize: 12,
-                fontFamily: 'var(--font-data, monospace)',
-              }}>
+              className={`seg-btn${active ? ' seg-btn--active' : ''}`}
+            >
               {s.label}
             </button>
           )
@@ -575,20 +567,17 @@ const TREATMENT_MODES = [
 function TreatmentModeToggle({ value, onChange }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Treatment</span>
-      <div style={{ display: 'flex', gap: 4 }}>
+      <span style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 500 }}>Treatment</span>
+      <div className="seg-control">
         {TREATMENT_MODES.map(s => {
           const active = s.key === value
           return (
-            <button key={s.key} onClick={() => onChange(s.key)}
+            <button
+              key={s.key}
+              onClick={() => onChange(s.key)}
               title={s.desc}
-              style={{
-                padding: '4px 10px', borderRadius: 6,
-                border: `1px solid ${active ? 'var(--color-blue)' : 'var(--border)'}`,
-                background: active ? 'var(--color-blue)' : 'transparent',
-                color: active ? '#fff' : 'var(--text)', cursor: 'pointer', fontSize: 12,
-                fontFamily: 'var(--font-data, monospace)',
-              }}>
+              className={`seg-btn${active ? ' seg-btn--active' : ''}`}
+            >
               {s.label}
             </button>
           )
@@ -733,16 +722,16 @@ function ListTab({ surveyId, mode, view, onRowClick, selectedSectionId }) {
             </select>
           )}
           <button className="btn btn-secondary" onClick={() => doExport('csv')} disabled={exporting}
-            style={{ fontSize: 13, padding: '5px 12px' }}>
-            {exporting ? 'Exporting…' : 'Export CSV'}
+            style={{ fontSize: 12, padding: '5px 12px' }}>
+            {exporting ? 'Exporting…' : 'CSV'}
           </button>
           <button className="btn btn-secondary" onClick={() => doExport('xlsx')} disabled={exporting}
-            style={{ fontSize: 13, padding: '5px 12px' }}>
+            style={{ fontSize: 12, padding: '5px 12px' }}>
             XLSX
           </button>
-          <button className="btn btn-secondary" onClick={() => doExport('shp')} disabled={exporting}
+          <button className="btn btn-primary" onClick={() => doExport('shp')} disabled={exporting}
             title="Requires an active network geometry (upload one on the Map tab)"
-            style={{ fontSize: 13, padding: '5px 12px' }}>
+            style={{ fontSize: 12, padding: '5px 12px' }}>
             SHP
           </button>
         </div>

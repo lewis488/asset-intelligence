@@ -7,7 +7,7 @@ const Skeleton = ({ lines = [100, 88, 94, 75, 83, 60] }) => (
     {lines.map((w, i) => (
       <div key={i} style={{
         height: 11, width: `${w}%`, borderRadius: 4,
-        background: 'rgba(255,255,255,0.07)',
+        background: 'var(--color-border-soft)',
         animation: `pulse 1.6s ease-in-out ${i * 120}ms infinite`,
       }} />
     ))}
@@ -28,12 +28,12 @@ const Section = ({ title, children, defaultOpen = true }) => {
         }}
       >
         <span style={{
-          fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase',
-          letterSpacing: '0.07em', color: 'var(--color-text-muted)',
+          fontSize: 9.5, fontWeight: 500, textTransform: 'uppercase',
+          letterSpacing: '0.05em', color: 'var(--color-text-muted)',
         }}>{title}</span>
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-          strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-          style={{ color: 'var(--color-text-dim)', flexShrink: 0,
+          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+          style={{ color: 'var(--color-text-muted)', flexShrink: 0,
             transform: open ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 150ms' }}>
           <polyline points="6 9 12 15 18 9"/>
         </svg>
@@ -58,23 +58,24 @@ const num = (v) => v != null ? Number(v).toLocaleString() : '—'
 
 // ── Urgency badge ─────────────────────────────────────────────────────────────
 const UrgencyBadge = ({ value }) => {
-  if (!value) return <span style={{ color: 'var(--color-text-dim)' }}>—</span>
-  let bg, color, border
+  if (!value) return <span style={{ color: 'var(--color-text-muted)' }}>—</span>
+  let bg, color
   if (value === 'Immediate') {
-    bg = 'var(--color-critical-dim)'; color = 'var(--color-critical)'; border = 'rgba(248,113,113,0.3)'
+    bg = 'var(--color-red-bg)';   color = 'var(--color-red-text)'
   } else if (value === 'This financial year') {
-    bg = 'var(--color-high-dim)'; color = 'var(--color-high)'; border = 'rgba(251,146,60,0.3)'
+    bg = 'var(--color-amber-bg)'; color = 'var(--color-amber-text)'
   } else if (value.startsWith('Programme')) {
-    bg = 'var(--color-medium-dim)'; color = 'var(--color-medium)'; border = 'rgba(250,204,21,0.3)'
+    bg = 'var(--color-amber-bg)'; color = 'var(--color-amber-text)'
   } else if (value.startsWith('Monitor') || value === 'Routine inspection') {
-    bg = 'var(--color-low-dim)'; color = 'var(--color-low)'; border = 'rgba(52,211,153,0.3)'
+    bg = 'var(--color-green-bg)'; color = 'var(--color-green-text)'
   } else {
-    bg = 'rgba(255,255,255,0.06)'; color = 'var(--color-text-muted)'; border = 'rgba(255,255,255,0.12)'
+    bg = 'var(--color-border-soft)'; color = 'var(--color-text-muted)'
   }
   return (
     <span style={{
-      display: 'inline-block', padding: '2px 9px', borderRadius: 99,
-      fontSize: 11, fontWeight: 700, background: bg, color, border: `1px solid ${border}`,
+      display: 'inline-block', padding: '2px 8px', borderRadius: 10,
+      fontSize: 9, fontWeight: 500, background: bg, color,
+      textTransform: 'uppercase', letterSpacing: '0.03em',
     }}>
       {value}
     </span>
@@ -132,13 +133,13 @@ export default function AssetDetailPanel({ asset, onClose }) {
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, lineHeight: 1.3, color: 'var(--color-text)' }}>
+            <h2 style={{ fontSize: 16, fontWeight: 500, margin: 0, lineHeight: 1.3, color: 'var(--color-text)' }}>
               {asset.road_name || 'Unknown Road'}
             </h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
               <code style={{
                 fontFamily: 'var(--font-data)', fontSize: 11,
-                background: 'rgba(255,255,255,0.06)', color: 'var(--color-text-muted)',
+                background: 'var(--color-border-soft)', color: 'var(--color-text-muted)',
                 padding: '2px 6px', borderRadius: 4,
               }}>
                 {asset.nsg_ref}
@@ -161,7 +162,7 @@ export default function AssetDetailPanel({ asset, onClose }) {
         {/* Score summary */}
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <span className={`badge badge-${asset.risk_band}`}>{asset.risk_band}</span>
-          <span style={{ fontFamily: 'var(--font-data)', fontSize: 22, fontWeight: 800, color: 'var(--color-text)' }}>
+          <span style={{ fontFamily: 'var(--font-data)', fontSize: 22, fontWeight: 500, color: 'var(--color-text)' }}>
             {dec(asset.composite_score)}
           </span>
           <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
@@ -178,10 +179,9 @@ export default function AssetDetailPanel({ asset, onClose }) {
             { label: 'Reactive',val: asset.reactive_score, active: asset.has_reactive },
           ].map(({ label, val, active }) => (
             <span key={label} style={{
-              fontSize: 11, padding: '2px 8px', borderRadius: 99, fontWeight: 600,
-              background: active ? 'var(--color-blue-dim)' : 'rgba(255,255,255,0.04)',
-              color:      active ? 'var(--color-blue)'     : 'var(--color-text-dim)',
-              border:     `1px solid ${active ? 'rgba(59,130,246,0.3)' : 'var(--color-border)'}`,
+              fontSize: 10, padding: '2px 8px', borderRadius: 10, fontWeight: 500,
+              background: active ? 'var(--color-accent-soft)' : 'var(--color-border-soft)',
+              color:      active ? 'var(--color-accent)'      : 'var(--color-text-muted)',
             }}>
               {label} {dec(val, 0)}
             </span>
@@ -252,7 +252,7 @@ export default function AssetDetailPanel({ asset, onClose }) {
 
         {/* TREATMENT */}
         <Section title="Treatment Recommendation">
-          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12, lineHeight: 1.4, color: 'var(--color-text)' }}>
+          <div style={{ fontWeight: 500, fontSize: 14, marginBottom: 12, lineHeight: 1.4, color: 'var(--color-text)' }}>
             {asset.treatment_recommendation || 'Not assessed'}
           </div>
           <Row label="Urgency"    value={<UrgencyBadge value={asset.urgency} />} />

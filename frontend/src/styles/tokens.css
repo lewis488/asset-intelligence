@@ -1,41 +1,44 @@
 :root {
-  /* Base surfaces */
-  --color-base:      #0A0F1E;
-  --color-surface:   #111827;
-  --color-panel:     #1F2937;
-  --color-border:    rgba(255,255,255,0.07);
-  --color-border-strong: rgba(255,255,255,0.12);
-
-  /* Accent */
-  --color-amber:     #F5A623;
-  --color-amber-dim: rgba(245,166,35,0.12);
-  --color-blue:      #3B82F6;
-  --color-blue-dim:  rgba(59,130,246,0.12);
-
-  /* RAG semantic */
-  --color-critical:  #F87171;
-  --color-critical-dim: rgba(248,113,113,0.12);
-  --color-high:      #FB923C;
-  --color-high-dim:  rgba(251,146,60,0.12);
-  --color-medium:    #FACC15;
-  --color-medium-dim: rgba(250,204,21,0.12);
-  --color-low:       #34D399;
-  --color-low-dim:   rgba(52,211,153,0.12);
-  --color-unknown:   #6B7280;
+  /* Surfaces */
+  --color-page:        #F7FAFC;
+  --color-surface:      #FFFFFF;
+  --color-panel-dark:   #1E3A5F;
+  --color-panel-dark-2: #2E4F7A;
+  --color-border:       #E2E6ED;
+  --color-border-soft:  #F1F5F9;
 
   /* Text */
-  --color-text:      #F9FAFB;
-  --color-text-muted:#9CA3AF;
-  --color-text-dim:  #6B7280;
+  --color-text:         #1A2733;
+  --color-text-muted:   #64748B;
+  --color-text-on-dark:      #FFFFFF;
+  --color-text-on-dark-muted:#A9C2DB;
+
+  /* Accent (primary interactive - buttons, active states) */
+  --color-accent:       #1E3A5F;
+  --color-accent-soft:  #EEF3F8;
+
+  /* Risk / RAG semantic */
+  --color-red:          #C0453A;
+  --color-red-bg:        #FBEAE8;
+  --color-red-text:      #B0483C;
+
+  --color-amber:        #D89A3D;
+  --color-amber-bg:      #FCF3E3;
+  --color-amber-text:    #B87A1E;
+
+  --color-green:        #4A8B6F;
+  --color-green-bg:      #EBF3EE;
+  --color-green-text:    #4A7A62;
 
   /* Typography */
-  --font-ui:   'Inter', system-ui, sans-serif;
-  --font-data: 'JetBrains Mono', 'Fira Mono', monospace;
+  --font-ui: 'Work Sans', system-ui, sans-serif;
+  --font-data: 'Work Sans', system-ui, sans-serif;
 
   /* Sizing */
   --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --sidebar-width:     220px;
-  --sidebar-collapsed: 56px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* Layout */
+  --topnav-height: 52px;
 }

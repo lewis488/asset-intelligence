@@ -29,6 +29,15 @@ export const authApi = {
   register: (data) => api.post('/auth/register', data),
 }
 
+export const adminApi = {
+  authorities: () => api.get('/admin/authorities'),
+  createAuthority: data => api.post('/admin/authorities', data),
+  users: () => api.get('/admin/users'),
+  createUser: data => api.post('/admin/users', data),
+  updateUser: (id, data) => api.patch(`/admin/users/${id}`, data),
+  dataOverview: () => api.get('/admin/data-overview'),
+}
+
 export const assetsApi = {
   list: (params) => api.get('/assets/', { params }),
   uploadScanner: (file) => { const fd = new FormData(); fd.append('file', file); return api.post('/assets/upload/scanner', fd) },
@@ -43,6 +52,7 @@ export const assetsApi = {
   uploadNetwork: (file) => { const fd = new FormData(); fd.append('file', file); return api.post('/assets/upload/network', fd, { timeout: 300000 }) },
   networkStats: () => api.get('/assets/network-stats'),
   myDatasets: (params) => api.get('/assets/my-datasets', { params }),
+  mapData: (params) => api.get('/assets/map-data', { params }),
 }
 
 export const analysisApi = {

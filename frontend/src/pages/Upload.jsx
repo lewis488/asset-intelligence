@@ -17,7 +17,7 @@ function ValidationPanel({ result }) {
           {errors.map((e, i) => (
             <div key={i} style={{ marginBottom: 6, fontSize: 13 }}>
               {e.column && (
-                <code style={{ background: 'rgba(0,0,0,.15)', padding: '1px 5px', borderRadius: 3, marginRight: 6, fontSize: 11.5 }}>
+                <code style={{ background: 'var(--color-red-bg)', padding: '1px 5px', borderRadius: 3, marginRight: 6, fontSize: 11.5 }}>
                   {e.column}
                 </code>
               )}
@@ -34,7 +34,7 @@ function ValidationPanel({ result }) {
           {warnings.map((w, i) => (
             <div key={i} style={{ marginBottom: 4, fontSize: 13 }}>
               {(w.column || w) && (
-                <code style={{ background: 'rgba(0,0,0,.1)', padding: '1px 5px', borderRadius: 3, marginRight: 6, fontSize: 11.5 }}>
+                <code style={{ background: 'var(--color-amber-bg)', padding: '1px 5px', borderRadius: 3, marginRight: 6, fontSize: 11.5 }}>
                   {w.column || ''}
                 </code>
               )}
@@ -125,7 +125,7 @@ function NetworkUploadBlock() {
               </div>
             )}
             {cov && (
-              <div style={{ marginTop: 8, borderTop: '1px solid rgba(255,255,255,.3)', paddingTop: 8 }}>
+              <div style={{ marginTop: 8, borderTop: '0.5px solid var(--color-green)', paddingTop: 8 }}>
                 <div style={{ fontWeight: 600, marginBottom: 4 }}>Coverage analysis ({cov.nsgs_matched_to_assets} of {result.nsgs_ingested} NSGs matched to asset records)</div>
                 <div style={{ fontSize: 12, display: 'flex', flexWrap: 'wrap', gap: '4px 16px' }}>
                   <span>SCANNER: {cov.nsgs_with_scanner}</span>
