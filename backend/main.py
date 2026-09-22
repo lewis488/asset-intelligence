@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from config import settings
-from routers import auth as auth_router, assets, analysis, vaisala as vaisala_router
+from routers import auth as auth_router, assets, analysis, vaisala as vaisala_router, admin
 
 logging.basicConfig(
     level=logging.INFO if settings.environment != "production" else logging.WARNING,
@@ -41,6 +41,7 @@ async def limit_upload_size(request: Request, call_next):
 
 
 app.include_router(auth_router.router)
+app.include_router(admin.router)
 app.include_router(assets.router)
 app.include_router(analysis.router)
 app.include_router(vaisala_router.router)

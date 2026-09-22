@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, true
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -26,6 +26,7 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     role = Column(String, nullable=False, default="manager")
+    is_active = Column(Boolean, nullable=False, default=True, server_default=true())
     created_at = Column(DateTime, server_default=func.now())
 
     authority = relationship("Authority", back_populates="users")
