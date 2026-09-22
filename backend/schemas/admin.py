@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints, 
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
 Role = Literal["admin", "manager", "viewer"]
+DatasetType = Literal["scanner", "cvi", "scrim", "reactive", "network", "vaisala", "vaisala_network"]
 
 
 class AdminInput(BaseModel):
@@ -72,3 +73,17 @@ class AuthorityDataOut(BaseModel):
 class DataOverviewOut(BaseModel):
     authorities: list[AuthorityDataOut]
     total_authorities: int
+
+
+class UploadOut(BaseModel):
+    dataset_type: DatasetType
+    source_file: str | None
+    upload_id: int | None = None
+    record_count: int
+    uploaded_at: datetime | None
+
+
+class DatasetDelete(AdminInput):
+    # An explicit null source_file selects legacy records without a filename.
+    source_file: str | None = None
+    upload_id: int | None = Field(default=None, gt=0)

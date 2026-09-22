@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models.asset import AnalysisRun, Asset, RiskScore
-from models.user import User
+from models.user import Authority, User
 from routers.auth import get_current_user, require_contributor, resolve_authority_id
 from schemas.asset import AnalysisRunOut, QueryRequest, QueryResponse
 from services.llm import answer_query, generate_analysis, generate_vaisala_section_narrative
@@ -221,6 +221,11 @@ def run_analysis(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_contributor),
 ):
+    # Deletion locks the same authority. Hold this until results are persisted so an
+    # in-flight analysis cannot recreate scores from inputs that were just deleted.
+    authority = db.query(Authority).filter(Authority.id == current_user.authority_id).with_for_update().first()
+    if authority is None:
+        raise HTTPException(status_code=404, detail="Authority not found")
     scored, stats = _build_scored_assets(current_user.authority_id, db)
 
     if not scored:
@@ -318,9 +323,6 @@ def asset_narrative(
 
     auth_id = resolve_authority_id(current_user, None)
     cache_key = (nsg_ref, auth_id, _date.today().isoformat())
-    if cache_key in _narrative_cache:
-        return {**_narrative_cache[cache_key], "cached": True}
-
     q = db.query(Asset).filter(Asset.nsg_ref == nsg_ref)
     if auth_id is not None:
         q = q.filter(Asset.authority_id == auth_id)
@@ -378,6 +380,11 @@ def asset_narrative(
 
     context = "\n".join(parts)
 
+    # Re-read inputs before cache lookup: deleted uploads must not survive in a worker's cache.
+    cache_key = (*cache_key, context)
+    if cache_key in _narrative_cache:
+        return {**_narrative_cache[cache_key], "cached": True}
+
     try:
         narrative = generate_asset_narrative(context)
     except Exception as exc:
@@ -405,9 +412,6 @@ def vaisala_section_narrative(
 
     auth_id = resolve_authority_id(current_user, None)
     cache_key = ("vaisala", section_id, auth_id, _date.today().isoformat())
-    if cache_key in _narrative_cache:
-        return {**_narrative_cache[cache_key], "cached": True}
-
     q = db.query(_VSec).join(_VS, _VSec.survey_id == _VS.id).filter(_VSec.id == section_id)
     if auth_id is not None:
         q = q.filter(_VS.authority_id == auth_id)
@@ -493,6 +497,10 @@ def vaisala_section_narrative(
             )
 
     context = "\n".join(parts)
+
+    cache_key = (*cache_key, context)
+    if cache_key in _narrative_cache:
+        return {**_narrative_cache[cache_key], "cached": True}
 
     try:
         narrative = generate_vaisala_section_narrative(context)

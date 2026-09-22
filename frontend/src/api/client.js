@@ -26,7 +26,6 @@ export const authApi = {
     f.append('username', email); f.append('password', password)
     return api.post('/auth/login', f, { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } })
   },
-  register: (data) => api.post('/auth/register', data),
 }
 
 export const adminApi = {
@@ -36,6 +35,10 @@ export const adminApi = {
   createUser: data => api.post('/admin/users', data),
   updateUser: (id, data) => api.patch(`/admin/users/${id}`, data),
   dataOverview: () => api.get('/admin/data-overview'),
+  deleteAuthority: id => api.delete(`/admin/authorities/${id}`),
+  deleteUser: id => api.delete(`/admin/users/${id}`),
+  uploads: authorityId => api.get(`/admin/authorities/${authorityId}/uploads`),
+  deleteUpload: (authorityId, dataset, target) => api.delete(`/admin/authorities/${authorityId}/datasets/${dataset}`, { data: target }),
 }
 
 export const assetsApi = {

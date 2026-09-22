@@ -71,6 +71,13 @@
 .admin-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
 .admin-checkbox { display: flex; align-items: center; gap: 8px; }
 .admin-checkbox input { accent-color: var(--color-accent); }
+.admin-row-actions { display: flex; gap: 8px; }
+.admin-delete-button { color: var(--color-red-text); }
+.admin-btn-danger { background: var(--color-red); color: white; }
+.admin-delete-description { display: grid; gap: 10px; font-size: 13px; margin: 16px 0; overflow-wrap: anywhere; }
+.admin-uploads { margin-top: 14px; }
+.admin-uploads > div > .admin-help { margin: 12px 0; }
+.admin-modal .form-group > .admin-help { margin-bottom: 8px; overflow-wrap: anywhere; }
 
 @media (max-width: 600px) {
   .admin-tabs { gap: 4px; }

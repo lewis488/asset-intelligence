@@ -7,7 +7,7 @@ os.environ.setdefault("JWT_SECRET", "test-secret")
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from database import Base, get_db
@@ -21,6 +21,7 @@ from services.auth import hash_password
 @pytest.fixture
 def api(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'admin.db'}")
+    event.listen(engine, "connect", lambda connection, _: connection.execute("PRAGMA foreign_keys=ON"))
     Base.metadata.create_all(engine)
     sessions = sessionmaker(bind=engine)
     with sessions() as db:
@@ -104,7 +105,7 @@ def test_validation_and_public_registration(api):
     assert client.patch("/admin/users/999", headers=auth, json={"role": "viewer"}).status_code == 404
     assert client.post("/admin/authorities", headers=auth, json={"name": "  "}).status_code == 422
     assert client.get("/admin/users").status_code == 401
-    assert client.post("/auth/register", json={"email": "public@example.com", "password": "test-password", "authority_name": "Public", "role": "admin"}).status_code == 422
+    assert client.post("/auth/register", json={"email": "public@example.com", "password": "test-password", "authority_name": "Public", "role": "admin"}).status_code == 403
 
 
 def test_overview_counts_legacy_raw_and_empty_authorities(api):

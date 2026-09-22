@@ -1058,64 +1058,15 @@ async def upload_reactive_raw(
 
     db.flush()
 
-    # Bulk aggregate rebuild — 2 SQL statements instead of 2 × N queries
-    from sqlalchemy import text as _text
+    from services.reactive_aggregates import rebuild_reactive_aggregates
 
     asset_ids = list({t[0] for t in affected})
     years_found = sorted({t[1] for t in affected})
-
     if asset_ids:
-        db.execute(
-            _text("DELETE FROM reactive_aggregates WHERE asset_id = ANY(:ids)"),
-            {"ids": asset_ids},
-        )
-        db.execute(_text("""
-            INSERT INTO reactive_aggregates (
-                asset_id, nsg_ref, year,
-                total_jobs_raised,
-                emergency_jobs_2hr, urgent_jobs_24hr, jobs_5day, jobs_28day,
-                pothole_count, patching_count, edge_count, drainage_count, other_count,
-                most_recent_defect_date, days_since_most_recent_defect,
-                jobs_completed, jobs_outstanding,
-                mean_days_to_completion, oldest_outstanding_days,
-                rebuilt_at
-            )
-            SELECT
-                asset_id,
-                MIN(nsg_ref)                                                              AS nsg_ref,
-                EXTRACT(YEAR FROM job_entry_date)::int                                   AS year,
-                COUNT(*)                                                                  AS total_jobs_raised,
-                COUNT(*) FILTER (WHERE priority_category = 1)                            AS emergency_jobs_2hr,
-                COUNT(*) FILTER (WHERE priority_category = 2)                            AS urgent_jobs_24hr,
-                COUNT(*) FILTER (WHERE priority_category = 3)                            AS jobs_5day,
-                COUNT(*) FILTER (WHERE priority_category = 4)                            AS jobs_28day,
-                COUNT(*) FILTER (WHERE job_type_category = 'pothole')                    AS pothole_count,
-                COUNT(*) FILTER (WHERE job_type_category = 'patching')                   AS patching_count,
-                COUNT(*) FILTER (WHERE job_type_category = 'edge')                       AS edge_count,
-                COUNT(*) FILTER (WHERE job_type_category = 'drainage')                   AS drainage_count,
-                COUNT(*) FILTER (WHERE job_type_category = 'other')                      AS other_count,
-                MAX(job_entry_date)                                                       AS most_recent_defect_date,
-                (CURRENT_DATE - MAX(job_entry_date)::date)                               AS days_since_most_recent_defect,
-                COUNT(*) FILTER (WHERE actual_comp_date IS NOT NULL)                     AS jobs_completed,
-                COUNT(*) FILTER (WHERE actual_comp_date IS NULL)                         AS jobs_outstanding,
-                AVG(actual_comp_date::date - job_entry_date::date)
-                    FILTER (WHERE actual_comp_date IS NOT NULL
-                              AND actual_comp_date >= job_entry_date)                    AS mean_days_to_completion,
-                (CURRENT_DATE - (MIN(job_entry_date) FILTER (WHERE actual_comp_date IS NULL))::date)
-                                                                                          AS oldest_outstanding_days,
-                NOW()                                                                     AS rebuilt_at
-            FROM reactive_job_records
-            WHERE asset_id = ANY(:ids)
-              AND job_entry_date IS NOT NULL
-            GROUP BY asset_id, EXTRACT(YEAR FROM job_entry_date)::int
-        """), {"ids": asset_ids})
-
-    agg_count = db.execute(
-        _text("SELECT COUNT(*) FROM reactive_aggregates WHERE asset_id = ANY(:ids)"),
-        {"ids": asset_ids},
-    ).scalar() if asset_ids else 0
-    aggregates_rebuilt = agg_count or 0
-
+        rebuild_reactive_aggregates(db, asset_ids)
+    aggregates_rebuilt = db.query(ReactiveAggregate).filter(
+        ReactiveAggregate.asset_id.in_(asset_ids)
+    ).count() if asset_ids else 0
     db.commit()
     return ReactiveRawIngestionResult(
         jobs_ingested=jobs_ingested,

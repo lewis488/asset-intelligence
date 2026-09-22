@@ -2,15 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { adminApi } from '../api/client'
 import { useAuth } from '../context/AuthContext'
 import DatasetGrid from '../components/DatasetGrid'
+import { AdminDeleteDialog, AdminUploadList, adminErrorMessage as errorMessage } from '../components/AdminDeletion'
 import '../styles/admin.css'
 
 const TABS = ['Authorities', 'Users', 'Data Overview']
-
-function errorMessage(error) {
-  const detail = error.response?.data?.detail
-  if (Array.isArray(detail)) return detail.map(item => item.msg).join('. ')
-  return typeof detail === 'string' ? detail : 'Unable to complete the request. Please try again.'
-}
 
 function AdminModal({ kind, editedUser, authorities, onClose, onSave }) {
   const dialog = useRef(null)
@@ -103,6 +98,7 @@ export default function Admin() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [modal, setModal] = useState(null)
+  const [deleteTarget, setDeleteTarget] = useState(null)
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try {
@@ -114,6 +110,16 @@ export default function Admin() {
     finally { setLoading(false) }
   }, [])
   useEffect(() => { load() }, [load])
+
+  const deleteItem = async target => {
+    if (target.kind === 'user') await adminApi.deleteUser(target.user.id)
+    else if (target.kind === 'authority') await adminApi.deleteAuthority(target.authority.id)
+    else await adminApi.deleteUpload(target.authority.authority_id, target.upload.dataset_type,
+      target.upload.upload_id != null ? { upload_id: target.upload.upload_id } : { source_file: target.upload.source_file })
+    setDeleteTarget(null)
+    setNotice(target.kind === 'user' ? 'User deleted.' : target.kind === 'authority' ? 'Authority deleted.' : 'Upload deleted. Saved analysis cleared.')
+    await load()
+  }
 
   const saved = (kind, item) => {
     setModal(null)
@@ -163,10 +169,10 @@ export default function Admin() {
           onClick={() => selectTab(label)}>{label}</button>)}
       </div>
       <div id="admin-panel" role="tabpanel" aria-labelledby={`admin-tab-${TABS.indexOf(tab)}`} aria-busy={loading}>
+        {notice && <div className="alert alert-success" role="status">{notice}</div>}
         {loading ? <p className="admin-empty" role="status">Loading admin data…</p>
           : error ? <div className="alert alert-error" role="alert">{error} <button className="btn btn-secondary btn-sm" onClick={load}>Retry</button></div>
           : <>
-            {notice && <div className="alert alert-success" role="status">{notice}</div>}
             <div className="admin-toolbar">
               <div><h2>{tab}</h2><p className="admin-help">{tab === 'Authorities' ? 'Dataset count is the number of dataset types with stored records.'
                 : tab === 'Users' ? 'Assign each user an authority and an access role.'
@@ -175,11 +181,12 @@ export default function Admin() {
               {tab === 'Users' && <button className="btn btn-primary" disabled={!authorities.length} onClick={() => setModal({ kind: 'user' })}>+ New User</button>}
             </div>
             {tab === 'Authorities' && <div className="card admin-table-wrap"><table className="data-table" aria-label="Authorities">
-              <thead><tr><th scope="col">Name</th><th scope="col">Region</th><th scope="col">User count</th><th scope="col">Dataset count</th></tr></thead>
+              <thead><tr><th scope="col">Name</th><th scope="col">Region</th><th scope="col">User count</th><th scope="col">Dataset count</th><th scope="col">Actions</th></tr></thead>
               <tbody>{authorities.map(authority => <tr key={authority.id}>
                 <td>{authority.name}</td><td>{authority.region || '—'}</td>
                 <td>{userCounts.get(authority.id) ?? 0}</td><td>{datasetCounts.get(authority.id) ?? 0}</td>
-              </tr>)}{!authorities.length && <tr><td colSpan={4}>No authorities yet. Create an authority to get started.</td></tr>}</tbody>
+                <td><button type="button" className="btn btn-secondary btn-sm admin-delete-button" aria-label={`Delete ${authority.name}`} onClick={() => setDeleteTarget({ kind: 'authority', authority })}>Delete</button></td>
+              </tr>)}{!authorities.length && <tr><td colSpan={5}>No authorities yet. Create an authority to get started.</td></tr>}</tbody>
             </table></div>}
             {tab === 'Users' && <>
               {!authorities.length && <p className="admin-empty">Create an authority in the Authorities tab before adding users.</p>}
@@ -188,17 +195,20 @@ export default function Admin() {
                 <tbody>{users.map(entry => <tr key={entry.id}>
                   <td>{entry.email}</td><td>{authorityNames.get(entry.authority_id) ?? `Authority ${entry.authority_id}`}</td>
                   <td>{entry.role}</td><td><span className={`badge ${entry.is_active ? 'badge-Green' : 'badge-Unknown'}`}>{entry.is_active ? 'Active' : 'Inactive'}</span></td>
-                  <td><button className="btn btn-secondary btn-sm" aria-label={`Edit ${entry.email}`} onClick={() => setModal({ kind: 'user', editedUser: entry })}>Edit</button></td>
+                  <td><div className="admin-row-actions"><button className="btn btn-secondary btn-sm" aria-label={`Edit ${entry.email}`} onClick={() => setModal({ kind: 'user', editedUser: entry })}>Edit</button>
+                    <button type="button" className="btn btn-secondary btn-sm admin-delete-button" aria-label={`Delete ${entry.email}`} disabled={entry.id === user.id} title={entry.id === user.id ? 'You cannot delete your own account' : undefined} onClick={() => setDeleteTarget({ kind: 'user', user: entry })}>Delete</button></div></td>
                 </tr>)}{!users.length && <tr><td colSpan={5}>No users yet. Add a user to grant access.</td></tr>}</tbody>
               </table></div>
             </>}
             {tab === 'Data Overview' && (overview.length ? overview.map(authority => <section className="admin-authority" key={authority.authority_id} aria-labelledby={`authority-${authority.authority_id}`}>
               <h3 id={`authority-${authority.authority_id}`}>{authority.authority_name}</h3>
               <DatasetGrid datasets={authority.datasets} overview />
+              <AdminUploadList authority={authority} onDelete={setDeleteTarget} />
             </section>) : <p className="admin-empty">No authorities yet. Create an authority to get started.</p>)}
           </>}
       </div>
       {modal && <AdminModal {...modal} authorities={authorities} onClose={() => setModal(null)} onSave={saved} />}
+      {deleteTarget && <AdminDeleteDialog target={deleteTarget} onClose={() => setDeleteTarget(null)} onDelete={deleteItem} />}
     </div>
   )
 }

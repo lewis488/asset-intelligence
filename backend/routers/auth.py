@@ -5,9 +5,9 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models.user import Authority, User
-from schemas.auth import LoginResponse, RegisterRequest, UserOut
-from services.auth import create_access_token, decode_token, hash_password, verify_password
+from models.user import User
+from schemas.auth import LoginResponse
+from services.auth import create_access_token, decode_token, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
@@ -58,27 +58,9 @@ def resolve_authority_id(
     return requested  # None means "all authorities" for admin
 
 
-@router.post("/register", response_model=UserOut, status_code=201)
-def register(req: RegisterRequest, db: Session = Depends(get_db)):
-    if db.query(User).filter(User.email == req.email).first():
-        raise HTTPException(status_code=400, detail="Email already registered")
-
-    authority = db.query(Authority).filter(Authority.name == req.authority_name).first()
-    if not authority:
-        authority = Authority(name=req.authority_name, region=req.region)
-        db.add(authority)
-        db.flush()
-
-    user = User(
-        authority_id=authority.id,
-        email=req.email,
-        hashed_password=hash_password(req.password),
-        role=req.role,
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
+@router.post("/register", include_in_schema=False)
+def register():
+    raise HTTPException(status_code=403, detail="Public registration is disabled. Contact your administrator")
 
 
 @router.post("/login", response_model=LoginResponse)

@@ -37,11 +37,28 @@ async function session(t, role = 'admin') {
     } }, { authority_id: 2, authority_name: 'Empty Council', datasets: {} },
   ] }
   const requests = []
+  const uploads = [
+    { dataset_type: 'vaisala', source_file: 'survey.xlsx', upload_id: 17, record_count: 25, uploaded_at: '2026-09-20T12:00:00' },
+    { dataset_type: 'scanner', source_file: 'scanner.csv', upload_id: null, record_count: 1234, uploaded_at: '2026-09-20T12:00:00' },
+  ]
   await page.route('**/*', async route => {
     const req = route.request(), path = new URL(req.url()).pathname
     if (req.resourceType() === 'document') return route.continue()
     if (path.startsWith('/admin/')) {
       requests.push({ path, method: req.method(), body: req.postDataJSON() })
+      if (req.method() === 'DELETE') {
+        if (path === '/admin/users/2') users.splice(users.findIndex(user => user.id === 2), 1)
+        else if (path === '/admin/authorities/2') {
+          authorities.splice(authorities.findIndex(authority => authority.id === 2), 1)
+          overview.authorities.splice(overview.authorities.findIndex(authority => authority.authority_id === 2), 1)
+        } else if (path.startsWith('/admin/authorities/1/datasets/')) {
+          const body = req.postDataJSON()
+          const index = uploads.findIndex(upload => body.upload_id ? upload.upload_id === body.upload_id : upload.source_file === body.source_file)
+          if (index >= 0) uploads.splice(index, 1)
+        }
+        return route.fulfill({ status: 204 })
+      }
+      if (path.endsWith('/uploads')) return route.fulfill({ json: path === '/admin/authorities/1/uploads' ? uploads : [] })
       if (req.method() === 'POST' && path === '/admin/authorities') {
         const item = { id: 3, ...req.postDataJSON() }; authorities.push(item)
         overview.authorities.push({ authority_id: 3, authority_name: item.name, datasets: {} })
@@ -72,7 +89,7 @@ test('admin can see counts, create authorities and users, edit users and inspect
   await page.getByRole('heading', { name: 'Admin', exact: true }).waitFor()
   assert.equal(await page.getByRole('link', { name: 'Admin', exact: true }).count(), 1)
   const row = page.getByRole('row').filter({ hasText: 'First Council' })
-  assert.deepEqual(await row.locator('td').allTextContents(), ['First Council', 'South', '2', '3'])
+  assert.deepEqual((await row.locator('td').allTextContents()).slice(0, 4), ['First Council', 'South', '2', '3'])
   await page.getByRole('button', { name: '+ New Authority' }).click()
   await page.getByLabel('Authority name', { exact: true }).fill('New Council')
   await page.getByLabel('Region', { exact: true }).fill('North')
@@ -188,6 +205,7 @@ test('signed-out direct visits show sign-in without attempting automatic login',
   await page.goto(`${baseURL}/admin`)
   await page.waitForURL('**/login')
   await page.getByRole('button', { name: 'Sign In', exact: true }).waitFor()
+  assert.equal(await page.getByText(/register your authority|create account/i).count(), 0)
   assert.deepEqual(requests, [])
 })
 
@@ -201,4 +219,63 @@ test('shared dataset cards retain My Data survey counts and years', async t => {
   await page.getByText('1,234', { exact: true }).waitFor()
   assert.equal(await page.getByText('2025', { exact: true }).count(), 1)
   assert.equal(await page.getByText('surveys · 350 sections', { exact: true }).count(), 1)
+})
+
+test('delete user requires matching confirmation and cannot target the current account', async t => {
+  const { page, requests } = await session(t)
+  await page.goto(`${baseURL}/admin`)
+  await page.getByRole('tab', { name: 'Users', exact: true }).click()
+  assert.equal(await page.getByRole('button', { name: 'Delete admin@example.com', exact: true }).isDisabled(), true)
+  await page.getByRole('button', { name: 'Delete viewer@example.com', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  assert.equal(await dialog.getByRole('button', { name: 'Delete permanently' }).isDisabled(), true)
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  assert.equal(requests.filter(request => request.method === 'DELETE').length, 0)
+  await page.getByRole('button', { name: 'Delete viewer@example.com', exact: true }).click()
+  await dialog.getByLabel('Confirmation', { exact: true }).fill('viewer@example.com')
+  await dialog.getByRole('button', { name: 'Delete permanently' }).click()
+  await page.getByRole('cell', { name: 'viewer@example.com', exact: true }).waitFor({ state: 'hidden' })
+  assert.equal(requests.find(request => request.method === 'DELETE').path, '/admin/users/2')
+})
+
+test('delete authority refreshes the table and keeps server rejection visible', async t => {
+  const { page } = await session(t)
+  await page.goto(`${baseURL}/admin`)
+  await page.getByRole('button', { name: 'Delete Empty Council', exact: true }).click()
+  await page.getByLabel('Confirmation', { exact: true }).fill('Empty Council')
+  await page.getByRole('button', { name: 'Delete permanently' }).click()
+  await page.getByRole('cell', { name: 'Empty Council', exact: true }).waitFor({ state: 'hidden' })
+  await page.route('**/admin/authorities/1', route => route.fulfill({ status: 409, json: { detail: 'Remove all users first' } }))
+  await page.getByRole('button', { name: 'Delete First Council', exact: true }).click()
+  await page.getByLabel('Confirmation', { exact: true }).fill('First Council')
+  await page.getByRole('button', { name: 'Delete permanently' }).click()
+  await page.getByRole('dialog').getByRole('alert').waitFor()
+  assert.match(await page.getByRole('dialog').innerText(), /Remove all users first/)
+})
+
+test('delete individual survey and source file uses the authority and exact selected target', async t => {
+  const { page, requests } = await session(t)
+  await page.goto(`${baseURL}/admin`)
+  await page.getByRole('tab', { name: 'Data Overview', exact: true }).click()
+  const group = page.getByRole('region', { name: 'First Council', exact: true })
+  await group.getByRole('button', { name: 'Manage uploads' }).click()
+  await group.getByRole('button', { name: 'Delete survey.xlsx', exact: true }).waitFor()
+  if (process.env.ADMIN_SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.ADMIN_SCREENSHOT_DIR}/admin-delete-uploads.png`, fullPage: true })
+  await group.getByRole('button', { name: 'Delete survey.xlsx', exact: true }).click()
+  await page.getByLabel('Confirmation', { exact: true }).fill('survey.xlsx')
+  if (process.env.ADMIN_SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.ADMIN_SCREENSHOT_DIR}/admin-delete-confirmation.png`, fullPage: true })
+  await page.getByRole('button', { name: 'Delete permanently' }).click()
+  await page.getByRole('dialog').waitFor({ state: 'hidden' })
+  assert.deepEqual(requests.find(request => request.method === 'DELETE'), {
+    path: '/admin/authorities/1/datasets/vaisala', method: 'DELETE', body: { upload_id: 17 },
+  })
+  await group.getByRole('button', { name: 'Manage uploads' }).click()
+  assert.equal(await group.getByRole('button', { name: 'Delete survey.xlsx', exact: true }).count(), 0)
+  await group.getByRole('button', { name: 'Delete scanner.csv', exact: true }).click()
+  await page.getByLabel('Confirmation', { exact: true }).fill('scanner.csv')
+  await page.getByRole('button', { name: 'Delete permanently' }).click()
+  await page.getByRole('dialog').waitFor({ state: 'hidden' })
+  assert.deepEqual(requests.filter(request => request.method === 'DELETE').at(-1), {
+    path: '/admin/authorities/1/datasets/scanner', method: 'DELETE', body: { source_file: 'scanner.csv' },
+  })
 })
