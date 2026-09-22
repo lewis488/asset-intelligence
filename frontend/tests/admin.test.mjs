@@ -59,7 +59,7 @@ async function session(t, role = 'admin') {
       }
       return route.fulfill({ json: path.endsWith('/authorities') ? authorities : path.endsWith('/users') ? users : overview })
     }
-    if (/^\/(assets|analysis)\//.test(path)) return route.fulfill({ json: {} })
+    if (['xhr', 'fetch'].includes(req.resourceType()) && /^\/(assets|analysis)\//.test(path)) return route.fulfill({ json: {} })
     if (new URL(req.url()).origin !== baseURL) return route.abort()
     return route.continue()
   })
