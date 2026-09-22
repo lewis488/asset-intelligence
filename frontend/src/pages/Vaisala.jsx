@@ -1588,8 +1588,6 @@ export default function Vaisala() {
         <p>Road condition scoring · RAG banding · Treatment prioritisation</p>
       </div>
 
-      <UploadPanel onUploaded={handleUploaded} />
-
       {surveys.length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <label style={{ fontSize: 13, color: 'var(--muted)', marginRight: 8 }}>Survey:</label>
@@ -1648,6 +1646,10 @@ export default function Vaisala() {
           </div>
         </div>
       )}
+
+      <div style={{ marginTop: 24 }}>
+        <UploadPanel onUploaded={handleUploaded} />
+      </div>
 
       {selectedSection && (
         <VaisalaSectionDetailPanel
