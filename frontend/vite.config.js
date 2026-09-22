@@ -11,6 +11,7 @@ export default defineConfig({
       '/analysis': 'http://localhost:8001',
       '/vaisala': 'http://localhost:8001',
       '/health': 'http://localhost:8001',
+      '^/admin/(authorities|users|data-overview)(/|$)': 'http://localhost:8001',
     },
   },
 })

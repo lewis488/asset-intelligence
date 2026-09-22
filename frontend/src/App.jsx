@@ -8,6 +8,7 @@ import Analysis from './pages/Analysis'
 import Query from './pages/Query'
 import Vaisala from './pages/Vaisala'
 import MyData from './pages/MyData'
+import Admin from './pages/Admin'
 
 function Guard({ children }) {
   const { isAuthenticated } = useAuth()
@@ -17,6 +18,11 @@ function Guard({ children }) {
 function PublicOnly({ children }) {
   const { isAuthenticated } = useAuth()
   return isAuthenticated ? <Navigate to="/dashboard" replace /> : children
+}
+
+function AdminOnly({ children }) {
+  const { user } = useAuth()
+  return user?.role === 'admin' ? children : <Navigate to="/dashboard" replace />
 }
 
 export default function App() {
@@ -33,6 +39,7 @@ export default function App() {
             <Route path="query" element={<Query />} />
             <Route path="vaisala" element={<Vaisala />} />
             <Route path="my-data" element={<MyData />} />
+            <Route path="admin" element={<AdminOnly><Admin /></AdminOnly>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
