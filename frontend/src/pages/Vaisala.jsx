@@ -11,10 +11,10 @@ const NETWORKS = [
   { value: 'wscc',   label: 'West Sussex (WSCC)' },
 ]
 const TABS = [
-  { key: 'list1', tag: 'Native', name: 'List 1', desc: 'Road Surface Condition' },
-  { key: 'list2', tag: 'Native', name: 'List 2', desc: 'Asphalt Condition' },
-  { key: 'list3', tag: 'Native', name: 'List 3', desc: 'PAS 2161' },
-  { key: 'list4', tag: 'Computed', name: 'List 4', desc: 'Weighted Score' },
+  { key: 'list1', tag: 'Native', name: 'RSC', desc: 'Road Surface Condition' },
+  { key: 'list2', tag: 'Native', name: 'Asphalt', desc: 'Asphalt Condition' },
+  { key: 'list3', tag: 'Native', name: 'PAS', desc: 'PAS 2161' },
+  { key: 'list4', tag: 'Computed', name: 'Defect Score', desc: 'Weighted Score' },
   { key: 'correlation', tag: 'Analysis', name: 'Correlation', desc: 'Cross-list agreement' },
   { key: 'qc', tag: 'Quality', name: 'QC', desc: 'Data confidence' },
   { key: 'map', tag: 'Visual', name: 'Map', desc: 'Network overview' },
@@ -278,7 +278,7 @@ function UploadPanel({ onUploaded }) {
       {/* Controls */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
         <div>
-          <label style={{ fontSize: 10, color: 'var(--color-text-muted)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 500 }}>Network</label>
+          <label style={{ fontSize: 10, color: 'var(--color-text-muted)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 500 }}>Process Model</label>
           <select value={network} onChange={e => setNetwork(e.target.value)} disabled={busy}
             style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'var(--color-page)', color: 'var(--color-text)', fontSize: 13 }}>
             {NETWORKS.map(n => <option key={n.value} value={n.value}>{n.label}</option>)}
