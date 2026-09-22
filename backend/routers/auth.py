@@ -26,6 +26,13 @@ def get_current_user(
     return user
 
 
+def require_contributor(current_user: User = Depends(get_current_user)) -> User:
+    """403 if viewer — blocks upload and analysis-trigger endpoints."""
+    if current_user.role == "viewer":
+        raise HTTPException(status_code=403, detail="Viewers cannot upload data or trigger analysis")
+    return current_user
+
+
 def resolve_authority_id(
     current_user: User,
     requested: Optional[int] = None,

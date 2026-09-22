@@ -21,7 +21,7 @@ from models.vaisala import (
     VaisalaSurvey,
     VaisalaSection,
 )
-from routers.auth import get_current_user, resolve_authority_id
+from routers.auth import get_current_user, require_contributor, resolve_authority_id
 from schemas.vaisala import (
     PaginatedVaisalaSections,
     VaisalaSectionOut,
@@ -413,7 +413,7 @@ async def upload_raw(
     network_key: str = Query("stroud", description="stroud or wscc"),
     dedup_strategy: str = Query("latest", description="latest | none — resolve duplicate survey passes per (section,from,to)"),
     weights_json: Optional[str] = Query(None, description="JSON object of defect weights; omit to use RAG-validated defaults"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_contributor),
     db: Session = Depends(get_db),
 ):
     """Upload a raw Vaisala interval-level XLSX or CSV file. Scores server-side."""
@@ -511,7 +511,7 @@ async def upload_raw(
 async def upload_shp_export(
     file: UploadFile = File(...),
     network_key: str = Query("stroud"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_contributor),
     db: Session = Depends(get_db),
 ):
     """Upload a zipped SHP export from priority_dst.html (pre-scored sections)."""
@@ -978,7 +978,7 @@ def export_csv(
 async def upload_network_geometry(
     file: UploadFile = File(..., description="ZIP containing .shp/.shx/.dbf/.prj"),
     section_field: Optional[str] = Query(None, description="DBF column identifying each section (auto-detects if omitted)"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_contributor),
     db: Session = Depends(get_db),
 ):
     import io as _io

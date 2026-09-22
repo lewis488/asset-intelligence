@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models.asset import Asset, CviRecord, ReactiveJob, ScannerRecord
 from models.user import User
-from routers.auth import get_current_user, resolve_authority_id
+from routers.auth import get_current_user, require_contributor, resolve_authority_id
 from schemas.asset import AssetWithScore, IngestionResult, PaginatedAssets
 from services.ingestion import (
     SCANNER_CSV_COLUMNS,
@@ -290,7 +290,7 @@ def _rci_band(red_pct: Optional[float], amber_pct: Optional[float], avg_ci: Opti
 async def upload_scanner(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_contributor),
 ):
     content = await file.read()
     fname = (file.filename or "").lower()
@@ -396,7 +396,7 @@ async def upload_scanner(
 async def upload_cvi(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_contributor),
 ):
     content = await file.read()
     try:
@@ -453,7 +453,7 @@ async def upload_cvi(
 async def upload_reactive(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_contributor),
 ):
     content = await file.read()
     try:
@@ -626,7 +626,7 @@ def _safe_int(v) -> Optional[int]:
 async def upload_scanner_raw(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_contributor),
 ):
     """Ingest a Confirm SCANNER export (10m interval rows). Aggregates to one record per NSG/year/direction."""
     content = await file.read()
@@ -729,7 +729,7 @@ async def upload_scanner_raw(
 async def upload_cvi_raw(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_contributor),
 ):
     """Ingest a Confirm CVI export (variable-length sections). Aggregates to one record per NSG/year."""
     content = await file.read()
@@ -838,7 +838,7 @@ async def upload_cvi_raw(
 async def upload_scrim_raw(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_contributor),
 ):
     """Ingest a Confirm SCRIM export (10m interval rows). Aggregates to one record per NSG/year."""
     content = await file.read()
@@ -946,7 +946,7 @@ async def upload_scrim_raw(
 async def upload_reactive_raw(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_contributor),
 ):
     """
     Ingest a Confirm reactive jobs export. Filters to condition-relevant job types,
@@ -1135,7 +1135,7 @@ async def upload_reactive_raw(
 async def upload_network(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_contributor),
 ):
     """
     Ingest the WSCC road network file (.gpkg or .zip containing .shp).

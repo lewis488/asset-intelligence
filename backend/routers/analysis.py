@@ -2,13 +2,13 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from database import get_db
 from models.asset import AnalysisRun, Asset, RiskScore
 from models.user import User
-from routers.auth import get_current_user
+from routers.auth import get_current_user, require_contributor, resolve_authority_id
 from schemas.asset import AnalysisRunOut, QueryRequest, QueryResponse
 from services.llm import answer_query, generate_analysis, generate_vaisala_section_narrative
 from config import settings
@@ -17,15 +17,19 @@ router = APIRouter(prefix="/analysis", tags=["analysis"])
 logger = logging.getLogger(__name__)
 
 
-def _build_scored_assets(authority_id: int, db: Session) -> tuple[list[dict], dict]:
+def _build_scored_assets(authority_id: Optional[int], db: Session) -> tuple[list[dict], dict]:
     """
     Score all assets for an authority and return:
       (scored_list sorted by composite_score desc, stats_dict)
+    authority_id=None means all authorities (admin only).
     """
     from routers.assets import _score_asset  # avoid circular at module level
     from sqlalchemy import text as _text
 
-    assets = db.query(Asset).filter(Asset.authority_id == authority_id).all()
+    q = db.query(Asset)
+    if authority_id is not None:
+        q = q.filter(Asset.authority_id == authority_id)
+    assets = q.all()
     scored: list[dict] = []
     scanner_count = cvi_count = scrim_count = reactive_count = 0
     ci_values: list[float] = []
@@ -39,7 +43,7 @@ def _build_scored_assets(authority_id: int, db: Session) -> tuple[list[dict], di
     na_rows = db.execute(_text("""
         SELECT nsg_ref, length_m
         FROM network_assets
-        WHERE authority_id = :auth_id
+        WHERE (:auth_id IS NULL OR authority_id = :auth_id)
     """), {"auth_id": authority_id}).fetchall()
     na_length_by_nsg: dict[str, float] = {r[0]: (r[1] or 0.0) for r in na_rows}
     total_network_m = float(sum(r[1] or 0 for r in na_rows))
@@ -48,7 +52,7 @@ def _build_scored_assets(authority_id: int, db: Session) -> tuple[list[dict], di
     classified_m_row = db.execute(_text("""
         SELECT COALESCE(SUM(length_m), 0)
         FROM network_assets
-        WHERE authority_id = :auth_id
+        WHERE (:auth_id IS NULL OR authority_id = :auth_id)
           AND road_class IN ('A', 'B', 'C')
     """), {"auth_id": authority_id}).scalar()
     classified_network_m = float(classified_m_row or 0)
@@ -124,12 +128,10 @@ def _build_scored_assets(authority_id: int, db: Session) -> tuple[list[dict], di
         from sqlalchemy import func as _func, case as _case
         from models.vaisala import VaisalaSurvey as _VS, VaisalaSection as _VSec
 
-        latest_vaisala = (
-            db.query(_VS)
-            .filter_by(authority_id=authority_id)
-            .order_by(_VS.imported_at.desc())
-            .first()
-        )
+        vq = db.query(_VS)
+        if authority_id is not None:
+            vq = vq.filter(_VS.authority_id == authority_id)
+        latest_vaisala = vq.order_by(_VS.imported_at.desc()).first()
         if latest_vaisala:
             agg = db.query(
                 _func.count(_VSec.id).label("total"),
@@ -185,7 +187,7 @@ def _build_scored_assets(authority_id: int, db: Session) -> tuple[list[dict], di
                 ],
             }
     except Exception:
-        logger.exception("Failed to load Vaisala stats for authority %d — dashboard unaffected", authority_id)
+        logger.exception("Failed to load Vaisala stats for authority %s — dashboard unaffected", authority_id)
 
     return scored, stats
 
@@ -217,7 +219,7 @@ def _persist_scores(scored: list[dict], db: Session):
 @router.post("/run", response_model=AnalysisRunOut)
 def run_analysis(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_contributor),
 ):
     scored, stats = _build_scored_assets(current_user.authority_id, db)
 
@@ -253,15 +255,15 @@ def run_analysis(
 
 @router.get("/latest", response_model=AnalysisRunOut)
 def latest_analysis(
+    authority_id: Optional[int] = Query(None, description="Admin only — filter by authority"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    run = (
-        db.query(AnalysisRun)
-        .filter(AnalysisRun.authority_id == current_user.authority_id)
-        .order_by(AnalysisRun.created_at.desc())
-        .first()
-    )
+    auth_id = resolve_authority_id(current_user, authority_id)
+    q = db.query(AnalysisRun)
+    if auth_id is not None:
+        q = q.filter(AnalysisRun.authority_id == auth_id)
+    run = q.order_by(AnalysisRun.created_at.desc()).first()
     if not run:
         raise HTTPException(status_code=404, detail="No analysis runs found. Run an analysis first.")
     return run
@@ -271,7 +273,7 @@ def latest_analysis(
 def query(
     req: QueryRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_contributor),
 ):
     scored, stats = _build_scored_assets(current_user.authority_id, db)
     if not scored:
@@ -288,11 +290,13 @@ def query(
 
 @router.get("/stats")
 def stats(
+    authority_id: Optional[int] = Query(None, description="Admin only — filter by authority"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """KPI stats for the dashboard — no LLM call."""
-    _, stats_dict = _build_scored_assets(current_user.authority_id, db)
+    auth_id = resolve_authority_id(current_user, authority_id)
+    _, stats_dict = _build_scored_assets(auth_id, db)
     return stats_dict
 
 
@@ -305,22 +309,22 @@ _narrative_cache: dict = {}
 def asset_narrative(
     nsg_ref: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_contributor),
 ):
     """Generate a 3–4 sentence AI narrative for a single asset. Cached per asset per day."""
     from datetime import date as _date
     from routers.assets import _score_asset
     from services.llm import generate_asset_narrative
 
-    cache_key = (nsg_ref, current_user.authority_id, _date.today().isoformat())
+    auth_id = resolve_authority_id(current_user, None)
+    cache_key = (nsg_ref, auth_id, _date.today().isoformat())
     if cache_key in _narrative_cache:
         return {**_narrative_cache[cache_key], "cached": True}
 
-    asset = (
-        db.query(Asset)
-        .filter(Asset.nsg_ref == nsg_ref, Asset.authority_id == current_user.authority_id)
-        .first()
-    )
+    q = db.query(Asset).filter(Asset.nsg_ref == nsg_ref)
+    if auth_id is not None:
+        q = q.filter(Asset.authority_id == auth_id)
+    asset = q.first()
     if not asset:
         raise HTTPException(status_code=404, detail=f"Asset {nsg_ref!r} not found")
 
@@ -393,22 +397,21 @@ def asset_narrative(
 def vaisala_section_narrative(
     section_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_contributor),
 ):
     """Generate a 3–4 sentence AI assessment for a single Vaisala section. Cached per section per day."""
     from datetime import date as _date
     from models.vaisala import VaisalaSection as _VSec, VaisalaSurvey as _VS
 
-    cache_key = ("vaisala", section_id, current_user.authority_id, _date.today().isoformat())
+    auth_id = resolve_authority_id(current_user, None)
+    cache_key = ("vaisala", section_id, auth_id, _date.today().isoformat())
     if cache_key in _narrative_cache:
         return {**_narrative_cache[cache_key], "cached": True}
 
-    section = (
-        db.query(_VSec)
-        .join(_VS, _VSec.survey_id == _VS.id)
-        .filter(_VSec.id == section_id, _VS.authority_id == current_user.authority_id)
-        .first()
-    )
+    q = db.query(_VSec).join(_VS, _VSec.survey_id == _VS.id).filter(_VSec.id == section_id)
+    if auth_id is not None:
+        q = q.filter(_VS.authority_id == auth_id)
+    section = q.first()
     if not section:
         raise HTTPException(status_code=404, detail=f"Vaisala section {section_id} not found")
 
