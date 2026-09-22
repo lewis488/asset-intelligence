@@ -34,6 +34,10 @@ function FitBounds({ geojson }) {
 // ── Network map card ──────────────────────────────────────────────────────────
 function NetworkMapCard({ geojson, networkData, onFeatureClick }) {
   const geoKey = geojson?.features?.length ?? 0
+  const osKey = import.meta.env.VITE_OS_MAPS_API_KEY
+  const tileUrl = osKey
+    ? `https://api.os.uk/maps/raster/v1/zxy/Light_3857/{z}/{x}/{y}.png?key=${encodeURIComponent(osKey)}`
+    : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 
   const styleFeature = (feature) => ({
     color: riskColour(feature.properties?.risk_band),
@@ -66,11 +70,11 @@ function NetworkMapCard({ geojson, networkData, onFeatureClick }) {
         zoom={9}
         style={{ width: '100%', height: '100%', borderRadius: 'var(--radius-md)' }}
         zoomControl={true}
-        attributionControl={false}
+        attributionControl={true}
       >
         <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-          subdomains="abcd"
+          url={tileUrl}
+          attribution={osKey ? '© Crown copyright · Ordnance Survey' : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}
           maxZoom={20}
         />
         {geojson && (
