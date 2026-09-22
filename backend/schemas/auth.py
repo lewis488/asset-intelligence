@@ -7,7 +7,7 @@ class RegisterRequest(BaseModel):
     password: str
     authority_name: str
     region: Optional[str] = None
-    role: Literal["admin", "analyst", "viewer"] = "analyst"
+    role: Literal["admin", "manager", "viewer"] = "manager"
 
 
 class UserOut(BaseModel):
@@ -15,7 +15,6 @@ class UserOut(BaseModel):
     email: str
     authority_id: int
     role: str
-    is_admin: bool
     model_config = {"from_attributes": True}
 
 

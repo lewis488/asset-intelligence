@@ -1,3 +1,5 @@
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -22,6 +24,25 @@ def get_current_user(
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return user
+
+
+def resolve_authority_id(
+    current_user: User,
+    requested: Optional[int] = None,
+) -> Optional[int]:
+    """
+    Returns the authority_id to use for data-scoping queries.
+
+    - Non-admin: always current_user.authority_id; requested param silently ignored.
+    - Admin + requested: use requested (allows viewing any authority's data).
+    - Admin + no requested: returns None → caller must treat as "no filter" (all authorities).
+
+    Upload endpoints must NOT use this — they always stamp current_user.authority_id
+    regardless of admin status, so admins can't accidentally mislabel their own uploads.
+    """
+    if current_user.role != "admin":
+        return current_user.authority_id
+    return requested  # None means "all authorities" for admin
 
 
 @router.post("/register", response_model=UserOut, status_code=201)

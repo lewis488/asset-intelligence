@@ -21,7 +21,7 @@ from models.vaisala import (
     VaisalaSurvey,
     VaisalaSection,
 )
-from routers.auth import get_current_user
+from routers.auth import get_current_user, resolve_authority_id
 from schemas.vaisala import (
     PaginatedVaisalaSections,
     VaisalaSectionOut,
@@ -44,6 +44,13 @@ from services.vaisala_scoring import (
 
 router = APIRouter(prefix="/vaisala", tags=["vaisala"])
 logger = logging.getLogger(__name__)
+
+
+def _merge_feature_geometries(geometries: list):
+    """Return the complete geometry represented by every feature for one section key."""
+    from shapely.ops import unary_union
+
+    return unary_union(geometries)
 
 
 def _get_or_create_default_weight_set(db: Session) -> tuple:
@@ -552,17 +559,25 @@ async def upload_shp_export(
     )
 
 
+def _get_survey(db: Session, survey_id: int, current_user) -> Optional[VaisalaSurvey]:
+    """Load survey by ID; non-admins must own the survey."""
+    q = db.query(VaisalaSurvey).filter(VaisalaSurvey.id == survey_id)
+    if current_user.role != "admin":
+        q = q.filter(VaisalaSurvey.authority_id == current_user.authority_id)
+    return q.first()
+
+
 @router.get("/surveys", response_model=list[VaisalaSurveyOut])
 def list_surveys(
+    authority_id: Optional[int] = Query(None, description="Admin only — filter by authority"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return (
-        db.query(VaisalaSurvey)
-        .filter_by(authority_id=current_user.authority_id)
-        .order_by(VaisalaSurvey.imported_at.desc())
-        .all()
-    )
+    auth_id = resolve_authority_id(current_user, authority_id)
+    q = db.query(VaisalaSurvey)
+    if auth_id is not None:
+        q = q.filter(VaisalaSurvey.authority_id == auth_id)
+    return q.order_by(VaisalaSurvey.imported_at.desc()).all()
 
 
 @router.get("/surveys/{survey_id}/stats", response_model=VaisalaStats)
@@ -574,7 +589,7 @@ def survey_stats(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    survey = db.query(VaisalaSurvey).filter_by(id=survey_id, authority_id=current_user.authority_id).first()
+    survey = _get_survey(db, survey_id, current_user)
     if not survey:
         raise HTTPException(404, "Survey not found")
 
@@ -634,7 +649,7 @@ def list_sections(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    survey = db.query(VaisalaSurvey).filter_by(id=survey_id, authority_id=current_user.authority_id).first()
+    survey = _get_survey(db, survey_id, current_user)
     if not survey:
         raise HTTPException(404, "Survey not found")
 
@@ -661,7 +676,7 @@ def all_sections(
     db: Session = Depends(get_db),
 ):
     """Return all rows for a survey without pagination — used for correlation and QC analysis."""
-    survey = db.query(VaisalaSurvey).filter_by(id=survey_id, authority_id=current_user.authority_id).first()
+    survey = _get_survey(db, survey_id, current_user)
     if not survey:
         raise HTTPException(404, "Survey not found")
 
@@ -694,7 +709,7 @@ def export_csv(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    survey = db.query(VaisalaSurvey).filter_by(id=survey_id, authority_id=current_user.authority_id).first()
+    survey = _get_survey(db, survey_id, current_user)
     if not survey:
         raise HTTPException(404, "Survey not found")
 
@@ -877,8 +892,8 @@ def export_csv(
             shp = _shape(_json.loads(f.geometry_geojson))
         except Exception:
             continue
-        features_by_key.setdefault(f.section_key, shp)
-        features_by_norm.setdefault(_norm(f.section_key), shp)
+        features_by_key.setdefault(f.section_key, []).append(shp)
+        features_by_norm.setdefault(_norm(f.section_key), []).append(shp)
 
     # SHP DBF column names capped at 10 chars — use short forms.
     short_layout = [
@@ -909,13 +924,15 @@ def export_csv(
     skipped = 0
     for r in rows:
         ref = str(r.get("section_ref") or "")
-        shp = features_by_key.get(ref) or features_by_norm.get(_norm(ref))
-        if shp is None:
+        matched_geometries = features_by_key.get(ref)
+        if matched_geometries is None:
+            matched_geometries = features_by_norm.get(_norm(ref))
+        if not matched_geometries:
             skipped += 1
             continue
         rec = {short: r.get(key) for short, key in short_layout}
         records.append(rec)
-        geoms.append(shp)
+        geoms.append(_merge_feature_geometries(matched_geometries))
 
     if not records:
         raise HTTPException(422, f"No rows matched the network geometry (checked {len(rows)} rows against {len(feature_rows)} features). Confirm the section-field on upload matches how sections are labelled.")
@@ -1073,15 +1090,15 @@ async def upload_network_geometry(
 
 @router.get("/network-geometry/current")
 def current_network_geometry(
+    authority_id: Optional[int] = Query(None, description="Admin only — filter by authority"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    geom = (
-        db.query(VaisalaNetworkGeometry)
-          .filter_by(authority_id=current_user.authority_id, is_active=True)
-          .order_by(VaisalaNetworkGeometry.created_at.desc())
-          .first()
-    )
+    auth_id = resolve_authority_id(current_user, authority_id)
+    q = db.query(VaisalaNetworkGeometry).filter_by(is_active=True)
+    if auth_id is not None:
+        q = q.filter(VaisalaNetworkGeometry.authority_id == auth_id)
+    geom = q.order_by(VaisalaNetworkGeometry.created_at.desc()).first()
     if not geom:
         return {"active": False}
     return {
@@ -1109,14 +1126,15 @@ def network_features_for_survey(
     Falls back to zero features if no network layer is active. section_key matches are attempted
     exact first, then with leading-zero normalisation (matches priority_dst.html normaliseSectionId).
     """
-    survey = db.query(VaisalaSurvey).filter_by(id=survey_id, authority_id=current_user.authority_id).first()
+    survey = _get_survey(db, survey_id, current_user)
     if not survey:
         raise HTTPException(404, "Survey not found")
     _validate_view_params(merge_scale, split, treatment_mode)
 
     geom = (
         db.query(VaisalaNetworkGeometry)
-          .filter_by(authority_id=current_user.authority_id, is_active=True)
+          .filter(VaisalaNetworkGeometry.authority_id == survey.authority_id,
+                  VaisalaNetworkGeometry.is_active == True)
           .order_by(VaisalaNetworkGeometry.created_at.desc())
           .first()
     )

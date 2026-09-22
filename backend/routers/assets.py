@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models.asset import Asset, CviRecord, ReactiveJob, ScannerRecord
 from models.user import User
-from routers.auth import get_current_user
+from routers.auth import get_current_user, resolve_authority_id
 from schemas.asset import AssetWithScore, IngestionResult, PaginatedAssets
 from services.ingestion import (
     SCANNER_CSV_COLUMNS,
@@ -516,10 +516,14 @@ def list_assets(
     risk_band: Optional[str] = Query(None),
     road_class: Optional[str] = Query(None),
     parish: Optional[str] = Query(None),
+    authority_id: Optional[int] = Query(None, description="Admin only — filter by authority"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    q = db.query(Asset).filter(Asset.authority_id == current_user.authority_id)
+    auth_id = resolve_authority_id(current_user, authority_id)
+    q = db.query(Asset)
+    if auth_id is not None:
+        q = q.filter(Asset.authority_id == auth_id)
     if road_class:
         q = q.filter(Asset.road_class == road_class)
     if parish:
@@ -538,11 +542,16 @@ def list_assets(
 
 @router.get("/export")
 def export_assets(
+    authority_id: Optional[int] = Query(None, description="Admin only — filter by authority"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Download full priority list as CSV."""
-    assets = db.query(Asset).filter(Asset.authority_id == current_user.authority_id).all()
+    auth_id = resolve_authority_id(current_user, authority_id)
+    q = db.query(Asset)
+    if auth_id is not None:
+        q = q.filter(Asset.authority_id == auth_id)
+    assets = q.all()
     scored = [_score_asset(a, db) for a in assets]
     scored.sort(key=lambda x: x["composite_score"], reverse=True)
 
@@ -1232,6 +1241,7 @@ def map_data(
     road_class: Optional[str] = Query(None),
     risk_band: Optional[str] = Query(None),
     rci_band: Optional[str] = Query(None),
+    authority_id: Optional[int] = Query(None, description="Admin only — filter by authority"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -1240,6 +1250,8 @@ def map_data(
     from shapely import wkt as _wkt
     from shapely.geometry import mapping as _mapping
     import json
+
+    auth_id = resolve_authority_id(current_user, authority_id)
 
     sql = _text("""
         WITH latest_score AS (
@@ -1273,14 +1285,14 @@ def map_data(
         FROM network_assets na
         LEFT JOIN assets a
             ON  a.nsg_ref      = na.nsg_ref
-            AND a.authority_id = :auth_id
+            AND (:auth_id IS NULL OR a.authority_id = :auth_id)
         LEFT JOIN latest_score  ls  ON ls.asset_id  = a.id
         LEFT JOIN latest_scanner lsc ON lsc.asset_id = a.id
-        WHERE na.authority_id = :auth_id
+        WHERE (:auth_id IS NULL OR na.authority_id = :auth_id)
           AND na.geometry IS NOT NULL
     """)
 
-    rows = db.execute(sql, {"auth_id": current_user.authority_id}).fetchall()
+    rows = db.execute(sql, {"auth_id": auth_id}).fetchall()
 
     features = []
     for row in rows:
@@ -1331,14 +1343,16 @@ def map_data(
 @router.get("/by-nsg/{nsg_ref}")
 def get_by_nsg(
     nsg_ref: str,
+    authority_id: Optional[int] = Query(None, description="Admin only — filter by authority"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Return full scored asset detail for a single NSG reference."""
-    asset = db.query(Asset).filter(
-        Asset.authority_id == current_user.authority_id,
-        Asset.nsg_ref == nsg_ref,
-    ).first()
+    auth_id = resolve_authority_id(current_user, authority_id)
+    q = db.query(Asset).filter(Asset.nsg_ref == nsg_ref)
+    if auth_id is not None:
+        q = q.filter(Asset.authority_id == auth_id)
+    asset = q.first()
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
     return _score_asset(asset, db)
@@ -1346,15 +1360,19 @@ def get_by_nsg(
 
 @router.get("/network-stats")
 def network_stats(
+    authority_id: Optional[int] = Query(None, description="Admin only — filter by authority"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Return network coverage summary for the dashboard."""
     from sqlalchemy import text as _text
 
-    count = db.query(NetworkAsset).filter(
-        NetworkAsset.authority_id == current_user.authority_id
-    ).count()
+    auth_id = resolve_authority_id(current_user, authority_id)
+
+    q = db.query(NetworkAsset)
+    if auth_id is not None:
+        q = q.filter(NetworkAsset.authority_id == auth_id)
+    count = q.count()
 
     if count == 0:
         return None
@@ -1363,10 +1381,10 @@ def network_stats(
     rows = db.execute(_text("""
         SELECT road_class, SUM(length_m) as total_m
         FROM network_assets
-        WHERE authority_id = :auth_id
+        WHERE (:auth_id IS NULL OR authority_id = :auth_id)
         GROUP BY road_class
         ORDER BY road_class
-    """), {"auth_id": current_user.authority_id}).fetchall()
+    """), {"auth_id": auth_id}).fetchall()
 
     total_m = sum(r[1] or 0 for r in rows)
     by_class = {r[0]: round((r[1] or 0) / 1000, 2) for r in rows if r[0]}
@@ -1389,8 +1407,8 @@ def network_stats(
             ) THEN 1 END)                                                           AS has_reactive
         FROM network_assets na
         JOIN assets a ON a.nsg_ref = na.nsg_ref
-        WHERE na.authority_id = :auth_id
-    """), {"auth_id": current_user.authority_id}).fetchone()
+        WHERE (:auth_id IS NULL OR na.authority_id = :auth_id)
+    """), {"auth_id": auth_id}).fetchone()
 
     total_matched = cov[0] or 0
 
@@ -1405,3 +1423,114 @@ def network_stats(
         "nsgs_with_reactive": cov[4] or 0,
         "nsgs_with_no_data":  total_matched - max(cov[1] or 0, cov[2] or 0, cov[3] or 0, cov[4] or 0),
     }
+
+
+# ── Dataset inventory ─────────────────────────────────────────────────────────
+
+def _dataset_agg(model, auth_id, db, *, year_col="survey_year", ts_col="ingested_at"):
+    """Return {records, survey_years, last_updated} for one table. year_col=None skips years."""
+    from sqlalchemy import func, distinct as _distinct
+    ts_attr = getattr(model, ts_col)
+    q = db.query(func.count(model.id), func.max(ts_attr))
+    if auth_id is not None:
+        q = q.filter(model.authority_id == auth_id)
+    count, last_updated = q.one()
+    years = []
+    if year_col and count:
+        year_attr = getattr(model, year_col)
+        yq = db.query(_distinct(year_attr)).filter(year_attr.isnot(None))
+        if auth_id is not None:
+            yq = yq.filter(model.authority_id == auth_id)
+        years = sorted(r[0] for r in yq.all())
+    return {
+        "records": count or 0,
+        "survey_years": years,
+        "last_updated": last_updated.isoformat() if last_updated else None,
+    }
+
+
+def _datasets_for_authority(auth_id, db):
+    from sqlalchemy import func
+    from models.vaisala import VaisalaSurvey
+
+    scanner  = _dataset_agg(ScannerRawRecord, auth_id, db)
+    cvi      = _dataset_agg(CviRawRecord, auth_id, db)
+    scrim    = _dataset_agg(ScrimRecord, auth_id, db)
+    reactive = _dataset_agg(ReactiveJobRecord, auth_id, db, year_col=None)
+    if reactive["records"]:
+        yq = db.query(ReactiveAggregate.year).distinct().filter(ReactiveAggregate.year.isnot(None))
+        if auth_id is not None:
+            yq = yq.filter(ReactiveAggregate.authority_id == auth_id)
+        reactive["survey_years"] = sorted(r[0] for r in yq.all())
+
+    net_q = db.query(func.count(NetworkAsset.id), func.max(NetworkAsset.ingested_at))
+    if auth_id is not None:
+        net_q = net_q.filter(NetworkAsset.authority_id == auth_id)
+    net_count, net_ts = net_q.one()
+
+    vq = db.query(
+        func.count(VaisalaSurvey.id),
+        func.coalesce(func.sum(VaisalaSurvey.section_count), 0),
+        func.max(VaisalaSurvey.imported_at),
+    )
+    if auth_id is not None:
+        vq = vq.filter(VaisalaSurvey.authority_id == auth_id)
+    v_count, v_sections, v_ts = vq.one()
+
+    return {
+        "scanner":  scanner,
+        "cvi":      cvi,
+        "scrim":    scrim,
+        "reactive": reactive,
+        "network":  {
+            "records":      net_count or 0,
+            "last_updated": net_ts.isoformat() if net_ts else None,
+        },
+        "vaisala":  {
+            "surveys":      v_count or 0,
+            "sections":     int(v_sections or 0),
+            "last_updated": v_ts.isoformat() if v_ts else None,
+        },
+    }
+
+
+def _datasets_all_authorities(db):
+    from models.user import Authority
+
+    out = []
+    for auth in db.query(Authority).order_by(Authority.name).all():
+        datasets = _datasets_for_authority(auth.id, db)
+        has_data = any([
+            datasets["scanner"]["records"],
+            datasets["cvi"]["records"],
+            datasets["scrim"]["records"],
+            datasets["reactive"]["records"],
+            datasets["network"]["records"],
+            datasets["vaisala"]["surveys"],
+        ])
+        if has_data:
+            out.append({
+                "authority_id":   auth.id,
+                "authority_name": auth.name,
+                "slug":           auth.slug,
+                "datasets":       datasets,
+            })
+    return {"authorities": out, "total_authorities": len(out)}
+
+
+@router.get("/my-datasets")
+def my_datasets(
+    authority_id: Optional[int] = Query(None, description="Admin only — filter by authority"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Dataset inventory.
+    Non-admin: own authority flat summary.
+    Admin + authority_id param: single authority flat summary.
+    Admin, no param: all authorities grouped by authority.
+    """
+    auth_id = resolve_authority_id(current_user, authority_id)
+    if current_user.role == "admin" and auth_id is None:
+        return _datasets_all_authorities(db)
+    return _datasets_for_authority(auth_id, db)
