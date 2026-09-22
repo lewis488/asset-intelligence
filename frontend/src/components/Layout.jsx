@@ -44,6 +44,13 @@ const Ic = {
       <polyline points="9 18 15 12 9 6"/>
     </svg>
   ),
+  myData: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <ellipse cx="12" cy="5" rx="9" ry="3"/>
+      <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+      <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+    </svg>
+  ),
   signOut: (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
@@ -59,6 +66,7 @@ const NAV = [
   { to: '/analysis',  label: 'Analysis',    icon: Ic.analysis },
   { to: '/query',     label: 'Query',       icon: Ic.query },
   { to: '/vaisala',   label: 'Vaisala DST', icon: Ic.vaisala },
+  { to: '/my-data',   label: 'My Data',     icon: Ic.myData  },
 ]
 
 export default function Layout() {

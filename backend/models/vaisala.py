@@ -71,6 +71,7 @@ class VaisalaSection(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     survey_id = Column(Integer, ForeignKey("vaisala_surveys.id", ondelete="CASCADE"), nullable=False)
+    authority_id = Column(Integer, ForeignKey("authorities.id"), nullable=True)
     section_ref = Column(String, nullable=False)
     road_name = Column(String)
     net_reference = Column(String)
@@ -117,6 +118,7 @@ class VaisalaInterval(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     survey_id = Column(Integer, ForeignKey("vaisala_surveys.id", ondelete="CASCADE"), nullable=False)
+    authority_id = Column(Integer, ForeignKey("authorities.id"), nullable=True)
     section_ref = Column(String, nullable=False)
     road_name = Column(String)
     net_reference = Column(String)

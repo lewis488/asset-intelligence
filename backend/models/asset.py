@@ -159,6 +159,7 @@ class ScannerRawRecord(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     asset_id = Column(Integer, ForeignKey("assets.id"), nullable=False)
+    authority_id = Column(Integer, ForeignKey("authorities.id"), nullable=True)
     survey_year = Column(Integer)
     survey_date = Column(DateTime)
     survey_number = Column(String)
@@ -184,6 +185,7 @@ class CviRawRecord(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     asset_id = Column(Integer, ForeignKey("assets.id"), nullable=False)
+    authority_id = Column(Integer, ForeignKey("authorities.id"), nullable=True)
     survey_year = Column(Integer)
     survey_date = Column(DateTime)
     survey_name = Column(String)
@@ -212,6 +214,7 @@ class ScrimRecord(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     asset_id = Column(Integer, ForeignKey("assets.id"), nullable=False)
+    authority_id = Column(Integer, ForeignKey("authorities.id"), nullable=True)
     survey_year = Column(Integer)
     survey_date = Column(DateTime)
     survey_name = Column(String)
@@ -241,6 +244,7 @@ class ReactiveJobRecord(Base):
     id = Column(Integer, primary_key=True, index=True)
     job_number = Column(String, nullable=False, index=True)
     asset_id = Column(Integer, ForeignKey("assets.id"), nullable=False)
+    authority_id = Column(Integer, ForeignKey("authorities.id"), nullable=True)
     nsg_ref = Column(String, index=True)
     job_entry_date = Column(DateTime)
     actual_comp_date = Column(DateTime)
@@ -268,6 +272,7 @@ class ReactiveAggregate(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     asset_id = Column(Integer, ForeignKey("assets.id"), nullable=False)
+    authority_id = Column(Integer, ForeignKey("authorities.id"), nullable=True)
     nsg_ref = Column(String, index=True)
     year = Column(Integer)
 

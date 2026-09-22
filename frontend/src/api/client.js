@@ -42,6 +42,7 @@ export const assetsApi = {
   uploadReactiveRaw: (file) => { const fd = new FormData(); fd.append('file', file); return api.post('/assets/upload/reactive/raw', fd, { timeout: 300000 }) },
   uploadNetwork: (file) => { const fd = new FormData(); fd.append('file', file); return api.post('/assets/upload/network', fd, { timeout: 300000 }) },
   networkStats: () => api.get('/assets/network-stats'),
+  myDatasets: (params) => api.get('/assets/my-datasets', { params }),
 }
 
 export const analysisApi = {

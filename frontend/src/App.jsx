@@ -7,6 +7,7 @@ import Upload from './pages/Upload'
 import Analysis from './pages/Analysis'
 import Query from './pages/Query'
 import Vaisala from './pages/Vaisala'
+import MyData from './pages/MyData'
 
 function Guard({ children }) {
   const { isAuthenticated } = useAuth()
@@ -31,6 +32,7 @@ export default function App() {
             <Route path="analysis" element={<Analysis />} />
             <Route path="query" element={<Query />} />
             <Route path="vaisala" element={<Vaisala />} />
+            <Route path="my-data" element={<MyData />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

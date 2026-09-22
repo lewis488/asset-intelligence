@@ -1302,12 +1302,13 @@ function MapTab({ surveyId, view }) {
       .finally(() => setLoading(false))
   }, [surveyId, view.mergeScale, view.split, view.treatmentMode, network?.id])
 
-  // Init Leaflet map once
+  // Init Leaflet map; destroy on unmount so orphaned event listeners don't accumulate
   useEffect(() => {
-    if (mapRef.current) return
     const el = document.getElementById('vaisala-map')
     if (!el) return
+    let cancelled = false
     import('leaflet').then(mod => {
+      if (cancelled || mapRef.current) return
       const L = mod.default || mod
       const map = L.map(el, { preferCanvas: true }).setView([51.5, -2.2], 10)
       const tileUrl = OS_KEY
@@ -1319,6 +1320,12 @@ function MapTab({ surveyId, view }) {
       }).addTo(map)
       mapRef.current = map
     })
+    return () => {
+      cancelled = true
+      if (mapRef.current) { mapRef.current.remove(); mapRef.current = null }
+      layerRef.current = null
+      basemapRef.current = null
+    }
   }, [OS_KEY])
 
   // Render feature layer whenever features / colour mode change
