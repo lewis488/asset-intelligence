@@ -15,6 +15,7 @@ class UserOut(BaseModel):
     email: str
     authority_id: int
     role: str
+    is_admin: bool
     model_config = {"from_attributes": True}
 
 
