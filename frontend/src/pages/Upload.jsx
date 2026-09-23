@@ -96,9 +96,9 @@ function NetworkUploadBlock() {
     <div className="card" style={{ marginBottom: 18, borderLeft: '4px solid var(--accent)' }}>
       <h2 style={{ fontSize: 15, fontWeight: 700 }}>Road Network (Shapefile)</h2>
       <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 3, marginBottom: 12 }}>
-        WSCC road network master register. Establishes the NSG inventory and geometry.
+        Road network master register. Establishes the NSG inventory and geometry.
         Upload as <strong>.gpkg</strong> or <strong>.zip</strong> containing .shp/.shx/.dbf/.prj files.
-        Filters automatically to A/B/C/D classes, WSCC ownership, aggregates to one row per NSG.
+        Applies road class and ownership filters, then aggregates to one row per NSG.
       </p>
       <div
         className={`dropzone${over ? ' over' : ''}`}
@@ -505,7 +505,7 @@ export default function Upload() {
 
       <UploadBlock
         title="SCANNER Condition Data"
-        desc="Upload SCANNER survey data as a flat CSV (recommended) or as a formatted WSCC HMDIF Excel file. CI contributions drive the defect driver scoring."
+        desc="Upload SCANNER survey data as a flat CSV (recommended) or as a formatted HMDIF Excel file. CI contributions drive the defect driver scoring."
         accept=".csv,.xlsx,.xls"
         hint=".csv (recommended) or .xlsx — see column reference below"
         uploadFn={assetsApi.uploadScanner}
