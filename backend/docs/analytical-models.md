@@ -192,6 +192,10 @@ Used for treatment decision tree:
 | EDGE | Left edge deterioration, Right edge deterioration |
 
 ### Treatment assignment
+
+**Current client behaviour:** See [vaisala-treatment-candidates.md](vaisala-treatment-candidates.md).
+Read-time evidence-led assessment supersedes the legacy assignment below for API
+views, exports and AI. The historical functions/values remain for import provenance.
 `assign_treatment()` line 168 — thresholds are proportion of section length (0.0–1.0):
 
 ```
@@ -204,6 +208,10 @@ else → Monitor / Patching
 ```
 
 ### Percentile mode
+
+**Current API:** Percentiles now represent relative priority only; they never
+select treatment. Ties receive mid-ranks and singleton cohorts have no rank.
+The following table documents the retired client allocation, retained in the legacy helper.
 `assign_treatment_percentile()` line 199 — ranks sections by score within scale scope and assigns treatment by percentile band:
 
 | Percentile rank (within scale) | Treatment |

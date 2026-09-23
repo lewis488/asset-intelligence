@@ -137,6 +137,10 @@ Operates as a separate DST module. Vaisala scoring is NOT combined with the SCAN
 These thresholds are evidence-derived against real WSCC survey data (`RAG_DERIVATION_NOTE` in `vaisala_scoring.py:49–53`). Changing them breaks RAG comparability across surveys. They are NOT env variables.
 
 **Treatment decision tree** (`assign_treatment()`, lines 168–182):
+
+This is the legacy stored/imported label. Current Vaisala output derives an action
+and conditional candidates on read; see [vaisala-treatment-candidates.md](vaisala-treatment-candidates.md).
+Existing survey rows are not rewritten. Percentile rank no longer selects treatment.
 - structural_pct ≥ 0.20 OR alligator_pct ≥ 0.15 → Resurfacing
 - localised_pct ≥ 0.05 OR alligator_pct in [0.05, 0.15) → Patching
 - dressing or micro ≥ 0.05 → Surface Dressing or Micro-surfacing (whichever dominant)

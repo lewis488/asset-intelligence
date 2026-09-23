@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { analysisApi } from '../api/client'
+import VaisalaTreatmentAssessment from './VaisalaTreatmentAssessment'
 
 // ── Primitives ────────────────────────────────────────────────────────────────
 
@@ -161,23 +162,32 @@ function TreatmentSuitabilityBar({ label, value, colour }) {
 
 // ── Panel ─────────────────────────────────────────────────────────────────────
 
-export default function VaisalaSectionDetailPanel({ section, surveyMeta, treatmentMode = 'defect', onClose }) {
+export default function VaisalaSectionDetailPanel({ section, surveyMeta, onClose }) {
   const [narrative, setNarrative] = useState(null)
   const [narrativeLoading, setNarrativeLoading] = useState(false)
   const [narrativeError, setNarrativeError] = useState('')
   const [expandedTiers, setExpandedTiers] = useState({})
+  const narrativeId = section?.narrative_section_id
+    ?? (!section?.assessment_scope || section?.assessment_scope === 'section' ? section?.id : null)
 
   useEffect(() => {
     if (!section) return
     setNarrative(null)
     setNarrativeError('')
-    setNarrativeLoading(true)
     setExpandedTiers({})
-    analysisApi.vaisalaSectionNarrative(section.id)
-      .then(r => setNarrative(r.data))
-      .catch(e => setNarrativeError(e.response?.data?.detail || 'Narrative generation failed'))
-      .finally(() => setNarrativeLoading(false))
-  }, [section?.id])
+    if (narrativeId == null) {
+      setNarrativeLoading(false)
+      setNarrativeError('Whole-section AI assessment is unavailable for this view.')
+      return
+    }
+    let active = true
+    setNarrativeLoading(true)
+    analysisApi.vaisalaSectionNarrative(narrativeId)
+      .then(r => { if (active) setNarrative(r.data) })
+      .catch(e => { if (active) setNarrativeError(e.response?.data?.detail || 'Narrative generation failed') })
+      .finally(() => { if (active) setNarrativeLoading(false) })
+    return () => { active = false }
+  }, [section?.id, section?.assessment_scope, narrativeId])
 
   if (!section) return null
 
@@ -259,15 +269,9 @@ export default function VaisalaSectionDetailPanel({ section, surveyMeta, treatme
         </Section>
 
         {/* ── Treatment ───────────────────────────────────────────── */}
-        <Section title={treatmentMode === 'percentile' ? 'Percentile scenario allocation' : 'Indicative treatment candidate'}>
-          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>
-            {section.treatment || 'Not assessed'}
-          </div>
-          <p style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
-            {treatmentMode === 'percentile'
-              ? 'Allocated by relative rank within this view. This is a planning scenario, not evidence of treatment suitability.'
-              : 'A screening suggestion from the defect rules. Confirm the failure mechanism and pavement suitability through engineering review before selecting treatment.'}
-          </p>
+        <Section title="Action and treatment candidates">
+          <VaisalaTreatmentAssessment assessment={section.treatment_assessment}
+            scope={section.assessment_scope} percentile={section.priority_percentile} />
         </Section>
 
         {/* ── Defect Analysis (primary/secondary only) ────────────── */}
@@ -440,8 +444,8 @@ export default function VaisalaSectionDetailPanel({ section, surveyMeta, treatme
         {/* ── AI Assessment ───────────────────────────────────────── */}
         <Section title="AI Assessment">
           <p style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
-            Assessment uses the stored whole-section evidence and screening candidate, not any percentile
-            allocation or individual interval selected in this view.
+            AI assessment uses whole-section evidence and its conditional candidates.
+            The assessment above uses the selected view's evidence; relative rank never selects treatment.
           </p>
           {narrativeLoading && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 9, color: 'var(--muted)', fontSize: 13, padding: '4px 0' }}>

@@ -114,9 +114,11 @@ def _build_asset_context(priority_assets: list[dict], stats: dict) -> str:
                 f"  {i}. [{s.get('rag_band','?'):6}] {s.get('section_ref','?')} — "
                 f"{s.get('road_name') or '?'} — "
                 f"Score={s.get('priority_score', 0):.2f} — "
-                f"Indicative treatment candidate: {s.get('treatment') or '—'} — "
+                f"Next action: {(s.get('treatment_assessment') or {}).get('action', 'Not assessed')} — "
                 f"Primary defect: {s.get('primary_defect') or '—'}{contr_str}"
             )
+            if s.get('treatment_assessment'):
+                lines.append('  Structured treatment assessment: ' + json.dumps(s['treatment_assessment']))
 
     lines += [
         "",

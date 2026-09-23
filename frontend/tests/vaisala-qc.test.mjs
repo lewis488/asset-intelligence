@@ -25,7 +25,13 @@ for (const hasQC of [true, false]) test(hasQC ? 'QC renders whole percentages' :
   const page = await context.newPage()
   const survey = { id: 1, source_filename: 'qc.csv', section_count: 1, imported_at: '2026-09-23', network_key: 'stroud' }
   const section = { id: 1, section_ref: 'A', length_m: 10, priority_score: 0, rag_band: 'Green',
-    treatment: 'Surface Dressing', dressing_pct: 5, micro_pct: 3,
+    treatment: 'Surface dressing', recommended_action: 'Inspect', assessment_scope: 'section', priority_percentile: 50,
+    treatment_assessment: { action: 'Inspect', reason: 'Validate survey coverage before selection.',
+      evidence: ['Dressing-related defects: 5.0% (group measure)'],
+      candidates: [{ name: 'Surface dressing', rationale: 'Surface-related defects support consideration.',
+        prerequisites: ['Confirm pavement support and drainage.'], cautions: ['Visual evidence alone does not establish structural capacity.'] }],
+      evidence_gaps: ['Survey coverage needs validation.'], screening_basis: 'Provisional screening triggers, not national criteria.' },
+    dressing_pct: 5, micro_pct: 3,
     structural_pct: 0, severity_tier_pcts: { Structural: 0, High: 0, Medium: 5, Low: 3 },
     qc_completeness_pct: hasQC ? 20 : null, qc_completeness_band: hasQC ? 'Low' : null,
     qc_reliability_pct: hasQC ? 100 : null, qc_reliability_band: hasQC ? 'High' : null }
@@ -48,15 +54,22 @@ for (const hasQC of [true, false]) test(hasQC ? 'QC renders whole percentages' :
     await page.getByRole('cell', { name: 'A', exact: true }).click()
     await page.getByText(/^20\.0%/).waitFor()
     await page.getByText(/^100\.0%/).waitFor()
-    await page.getByText('Indicative treatment candidate', { exact: true }).waitFor()
+    await page.getByText('Action and treatment candidates', { exact: true }).waitFor()
+    await page.getByText('Next action: Inspect', { exact: true }).waitFor()
+    await page.locator('summary').filter({ hasText: /^Surface dressing$/ }).click()
+    await page.getByText('Confirm pavement support and drainage.', { exact: true }).waitFor()
+    await page.getByText('Evidence still needed', { exact: true }).click()
+    await page.getByText('Survey coverage needs validation.', { exact: true }).waitFor()
     await page.getByText('Treatment-related defect groups', { exact: true }).waitFor()
     assert.equal(await page.getByText('Treatment Suitability', { exact: true }).count(), 0)
     await page.getByText(/not the probability that a treatment is suitable/).waitFor()
     await page.getByRole('button', { name: 'Close', exact: true }).click()
-    await page.getByRole('button', { name: 'Percentile scenario', exact: true }).click()
+    await page.getByRole('button', { name: 'Relative priority', exact: true }).click()
+    await page.getByRole('columnheader', { name: 'Relative percentile', exact: true }).waitFor()
     await page.getByRole('cell', { name: 'A', exact: true }).click()
-    await page.getByText('Percentile scenario allocation', { exact: true }).waitFor()
-    await page.getByText(/not evidence of treatment suitability/).waitFor()
+    await page.getByText('Next action: Inspect', { exact: true }).waitFor()
+    await page.locator('summary').filter({ hasText: /^Surface dressing$/ }).waitFor()
+    await page.getByText(/Relative rank does not determine treatment suitability/).waitFor()
     await page.getByRole('button', { name: 'Close', exact: true }).click()
   }
   await page.getByRole('button', { name: 'QC', exact: true }).click()

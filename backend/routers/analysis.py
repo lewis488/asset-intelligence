@@ -11,6 +11,7 @@ from models.user import Authority, User
 from routers.auth import get_current_user, require_contributor, resolve_authority_id
 from schemas.asset import AnalysisRunOut, QueryRequest, QueryResponse
 from services.llm import answer_query, generate_analysis, generate_vaisala_section_narrative
+from services.vaisala_treatments import assess_treatments, ASSESSMENT_INPUTS
 from config import settings
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
@@ -179,7 +180,7 @@ def _build_scored_assets(authority_id: Optional[int], db: Session) -> tuple[list
                         "road_name":                   s.road_name,
                         "priority_score":              s.priority_score,
                         "rag_band":                    s.rag_band,
-                        "treatment":                   s.treatment,
+                        "treatment_assessment":        assess_treatments({key: getattr(s, key, None) for key in ASSESSMENT_INPUTS}),
                         "primary_defect":              s.primary_defect,
                         "primary_defect_contribution": s.primary_defect_contribution,
                     }
@@ -439,9 +440,12 @@ def vaisala_section_narrative(
             "thresholds were derived — RAG banding for this section should be treated as indicative only."
             if survey.has_weight_drift else ""
         ),
-        f"Indicative treatment candidate: {section.treatment or '—'} (stored section-level screening output; requires engineering review)",
         "Structural capacity, drainage cause, site inspection and treatment approval: not supplied in this context.",
     ]
+
+    import json
+    assessment = assess_treatments({key: getattr(section, key, None) for key in ASSESSMENT_INPUTS})
+    parts.append('Structured treatment assessment (whole section): ' + json.dumps(assessment))
 
     if section.primary_defect:
         contr = f" (score contribution: {_fmt(section.primary_defect_contribution, 4)} units)" if section.primary_defect_contribution else ""

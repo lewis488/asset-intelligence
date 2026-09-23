@@ -16,6 +16,12 @@ class VaisalaSectionOut(BaseModel):
     worst_interval_score: Optional[float]
     rag_band: Optional[str]
     treatment: Optional[str]
+    recommended_action: Optional[str] = None
+    treatment_assessment: Optional[dict] = None
+    priority_percentile: Optional[float] = None
+    assessment_scope: Optional[str] = None
+    narrative_section_id: Optional[int] = None
+    defect_evidence_complete: Optional[bool] = None
     primary_defect: Optional[str]
     primary_defect_contribution: Optional[float]
     secondary_defect: Optional[str]
@@ -81,6 +87,7 @@ class VaisalaStats(BaseModel):
     rag_length_km: dict
     has_weight_drift: bool
     top_treatments: dict
+    action_counts: dict = {}
     has_urban_rural: bool = False
 
 

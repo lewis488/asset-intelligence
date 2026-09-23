@@ -313,6 +313,15 @@ def _aggregate_intervals(df: pd.DataFrame, network_key: str, weights: dict[str, 
         df["_pri_defect"] = None
         df["_pri_contrib"] = 0.0
 
+    # Preserve source validity before score/group fillna(0) can disguise missing
+    # readings. This metadata does not change condition scores or group values.
+    complete = pd.Series(all(key in col_map for key in RAG_VALIDATED_WEIGHTS), index=df.index)
+    for key in RAG_VALIDATED_WEIGHTS:
+        if key in col_map:
+            readings = pd.to_numeric(df[col_map[key]], errors="coerce")
+            complete &= readings.between(0, 1) & np.isfinite(readings)
+    df['_defect_evidence_complete'] = complete
+
     # Group proportions (vectorised column-max)
     df["_structural"] = _group_max_series(df, STRUCTURAL_KEYS, col_map)
     df["_localised"]  = _group_max_series(df, LOCALISED_KEYS, col_map)
@@ -378,6 +387,7 @@ def _aggregate_intervals(df: pd.DataFrame, network_key: str, weights: dict[str, 
             "to_m":        _flt(to_vals[i]),
             "length_m":    float(len_a[i]),
             "interval_score": round(float(scores[i]), 4),
+            "defect_evidence_complete": bool(df['_defect_evidence_complete'].iloc[i]),
             "structural":  round(float(struct_a[i]), 4),
             "localised":   round(float(local_a[i]), 4),
             "dressing":    round(float(dress_a[i]), 4),
@@ -475,6 +485,7 @@ def _aggregate_intervals(df: pd.DataFrame, network_key: str, weights: dict[str, 
             "asphalt_condition_class":      wclass(asphalt_class_col),
             "pas2161_category":             wclass(pas_col, ascending=True),
             "priority_score":      round(priority_score, 4),
+            "defect_evidence_complete": bool(grp['_defect_evidence_complete'].all()),
             "worst_interval_score":round(worst_interval_score, 4),
             "rag_band":  rag,
             "treatment": treatment,

@@ -1,5 +1,8 @@
 # Evidence-based reporting — stage 1
 
+Stage 2 has superseded the Vaisala treatment/percentile limitations described below:
+see [vaisala-treatment-candidates.md](vaisala-treatment-candidates.md).
+
 Implemented 23 September 2026. This stage changes interpretation and reporting,
 not the validated condition model or the treatment-selection algorithms.
 

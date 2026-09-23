@@ -46,7 +46,8 @@ def test_vaisala_ai_receives_evidence_units_and_limits(api, ai_requests, qc):
     assert client.post(f'/analysis/vaisala/{section_id}', headers=headers['manager']).status_code == 200
     request = ai_requests[-1]
     context = request['messages'][0]['content']
-    assert 'Indicative treatment candidate: Resurfacing' in context
+    assert 'Structured treatment assessment' in context
+    assert 'Indicative treatment candidate: Resurfacing' not in context
     assert '% of weighted score' not in context
     assert 'Wheel track cracking=20.0%' in context
     if qc is not None:

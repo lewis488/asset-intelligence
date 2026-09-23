@@ -103,6 +103,7 @@ class VaisalaSection(Base):
     qc_reliability_pct = Column(Float)
     qc_reliability_band = Column(String)
     defect_proportions = Column(JSONB, nullable=True)
+    defect_evidence_complete = Column(Boolean, nullable=True)
     severity_tier_pcts = Column(JSONB, nullable=True)
     asset_id = Column(Integer, ForeignKey("assets.id", ondelete="SET NULL"), nullable=True)
 
@@ -131,6 +132,7 @@ class VaisalaInterval(Base):
     to_m = Column(Float)
     length_m = Column(Float, nullable=False)
     interval_score = Column(Float)
+    defect_evidence_complete = Column(Boolean, nullable=True)
     structural = Column(Float)
     localised = Column(Float)
     dressing = Column(Float)

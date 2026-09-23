@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import 'leaflet/dist/leaflet.css'
 import api, { vaisalaApi } from '../api/client'
 import VaisalaSectionDetailPanel from '../components/VaisalaSectionDetailPanel'
+import VaisalaTreatmentAssessment from '../components/VaisalaTreatmentAssessment'
 
 const RAG_COLOUR    = { Red: '#C0453A', Amber: '#D89A3D', Green: '#4A8B6F' }
 const RAG_COLOUR_BG = { Red: '#FBEAE8', Amber: '#FCF3E3', Green: '#EBF3EE' }
@@ -560,14 +561,14 @@ function SplitToggle({ value, onChange }) {
 }
 
 const TREATMENT_MODES = [
-  { key: 'defect',     label: 'Defect pattern', desc: 'Indicative treatment candidates from defect rules; engineering review required' },
-  { key: 'percentile', label: 'Percentile scenario', desc: 'Relative-rank planning allocations within this scale; not treatment suitability' },
+  { key: 'defect',     label: 'Evidence view', desc: 'Actions and conditional candidates from defect evidence' },
+  { key: 'percentile', label: 'Relative priority', desc: 'Show scale-scoped percentile rank; actions and candidates remain evidence-based' },
 ]
 
 function TreatmentModeToggle({ value, onChange }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 500 }}>Screening mode</span>
+      <span style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 500 }}>View</span>
       <div className="seg-control">
         {TREATMENT_MODES.map(s => {
           const active = s.key === value
@@ -650,8 +651,13 @@ const LIST_CONFIG = {
 }
 
 function ListTab({ surveyId, mode, view, onRowClick, selectedSectionId }) {
-  const cfg = LIST_CONFIG[mode]
   const { mergeScale, split, treatmentMode } = view
+  const baseConfig = LIST_CONFIG[mode]
+  const cfg = { ...baseConfig, cols: baseConfig.cols.flatMap(c => c.key === 'treatment'
+    ? [{ key: 'recommended_action', label: 'Next action', fallback: '—' }, { ...c, label: 'Conditional candidates' }]
+    : [c]).concat(mode === 'list4' && treatmentMode === 'percentile'
+      ? [{ key: 'priority_percentile', label: 'Relative percentile', right: true, fmt: v => v == null ? '—' : Number(v).toFixed(1) }]
+      : []) }
   const [sections, setSections] = useState([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
@@ -990,7 +996,7 @@ function CorrelationTab({ surveyId, view }) {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ borderBottom: '2px solid var(--border)' }}>
-                  {['Section', 'Road', 'Length (m)', 'Score', 'RSC', 'Asphalt', 'PAS', 'RAG', 'Treatment'].map(h => (
+                  {['Section', 'Road', 'Length (m)', 'Score', 'RSC', 'Asphalt', 'PAS', 'RAG', 'Conditional candidates'].map(h => (
                     <th key={h} style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 600, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
@@ -1131,7 +1137,7 @@ function QCTab({ surveyId, view }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ borderBottom: '2px solid var(--border)' }}>
-                {['Section', 'Road', 'Length (m)', '% Coverage', 'Score', 'RAG', 'Treatment'].map(h => (
+                {['Section', 'Road', 'Length (m)', '% Coverage', 'Score', 'RAG', 'Conditional candidates'].map(h => (
                   <th key={h} style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 600, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
@@ -1235,11 +1241,10 @@ function NetworkGeometryUploadPanel({ current, onUploaded }) {
 }
 
 const MAP_TREATMENT_COLOURS = {
-  'Resurfacing':        '#b23a28',
-  'Patching':           '#d9862a',
-  'Surface Dressing':   '#c9a227',
-  'Micro-surfacing':    '#7d9e6a',
-  'Monitor / Patching': '#5c8a99',
+  'Investigate': '#b23a28',
+  'Inspect': '#d9862a',
+  'Appraise maintenance options': '#c9a227',
+  'Monitor': '#5c8a99',
 }
 
 function _lerp(a, b, t) {
@@ -1257,7 +1262,7 @@ function scoreToColour(score) {
 function featureColour(props, mode) {
   if (!props?.matched) return '#666'
   if (mode === 'score') return scoreToColour(props.priority_score)
-  if (mode === 'treatment') return MAP_TREATMENT_COLOURS[props.treatment] || '#8a8d89'
+  if (mode === 'treatment') return MAP_TREATMENT_COLOURS[props.recommended_action] || '#8a8d89'
   const b = props.rag_band
   return b === 'Red' ? '#c0432f' : b === 'Amber' ? '#d9a51c' : b === 'Green' ? '#3a7d44' : '#888'
 }
@@ -1354,6 +1359,12 @@ function MapTab({ surveyId, view }) {
         <SymbologyToggle value={colourMode} onChange={setColourMode} />
       </div>
       <NetworkGeometryUploadPanel current={network} onUploaded={() => refreshNetwork()} />
+      {view.mergeScale !== 'section' && view.split !== 'urban' && (
+        <p style={{ fontSize: 12, color: 'var(--muted)' }}>
+          Lines show full section geometry. Scaled colours and assessments represent the first matching extent;
+          check the extent in the detail panel and use the list to review every interval.
+        </p>
+      )}
       {!OS_KEY && (
         <div className="alert" style={{ marginBottom: 10, padding: '8px 12px', borderRadius: 6, background: 'rgba(217,165,28,0.12)', border: '1px solid rgba(217,165,28,0.35)', fontSize: 12, color: 'var(--text)' }}>
           No OS Maps API key set (<code>VITE_OS_MAPS_API_KEY</code>) — falling back to OpenStreetMap tiles. Add a key from the OS Data Hub to switch to the OS Light basemap.
@@ -1384,7 +1395,7 @@ function MapTab({ surveyId, view }) {
 const SYMBOLOGY_MODES = [
   { key: 'rag',       label: 'RAG band' },
   { key: 'score',     label: 'Weighted score' },
-  { key: 'treatment', label: 'Treatment type' },
+  { key: 'treatment', label: 'Next action' },
 ]
 
 function SymbologyToggle({ value, onChange }) {
@@ -1434,7 +1445,7 @@ function MapLegend({ mode }) {
       backdropFilter: 'blur(4px)', border: '1px solid rgba(255,255,255,0.1)',
     }}>
       <div style={{ opacity: 0.7, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: 10 }}>
-        {mode === 'rag' ? 'RAG band' : mode === 'treatment' ? 'Treatment' : 'Weighted score'}
+        {mode === 'rag' ? 'RAG band' : mode === 'treatment' ? 'Next action' : 'Weighted score'}
       </div>
       {swatches.map(([label, colour]) => (
         <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
@@ -1478,8 +1489,9 @@ function SectionDetailPanel({ props, onClose }) {
         <>
           <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
             <span style={{ padding: '3px 10px', borderRadius: 99, background: ragColour + '22', color: ragColour, fontWeight: 700, fontSize: 12 }}>{p.rag_band || '—'}</span>
-            <span style={{ padding: '3px 10px', borderRadius: 99, background: 'var(--color-surface-raised, rgba(255,255,255,0.04))', fontSize: 12 }}>{p.treatment || '—'}</span>
+            <span style={{ padding: '3px 10px', borderRadius: 99, background: 'var(--color-surface-raised, rgba(255,255,255,0.04))', fontSize: 12 }}>{p.recommended_action || '—'}</span>
           </div>
+          <VaisalaTreatmentAssessment assessment={p.treatment_assessment} scope={p.assessment_scope} percentile={p.priority_percentile} />
 
           {row('Road', p.road_name || '—')}
           {row('Road class', p.road_class || '—')}
@@ -1610,8 +1622,9 @@ export default function Vaisala() {
 
       {selectedId && stats && (
         <div className="card" style={{ marginBottom: 20, padding: '12px 18px' }}>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>Next actions</div>
           <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', fontSize: 13 }}>
-            {Object.entries(stats.top_treatments || {}).map(([t, n]) => (
+            {Object.entries(stats.action_counts || {}).map(([t, n]) => (
               <span key={t}><strong>{n}</strong> <span style={{ color: 'var(--muted)' }}>{t}</span></span>
             ))}
           </div>
@@ -1647,8 +1660,8 @@ export default function Vaisala() {
       )}
 
       <p style={{ fontSize: 12, color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
-        Treatment outputs are indicative screening candidates requiring engineering review.
-        Percentile allocations are planning scenarios, not evidence of suitability.
+        Actions and conditional candidates come from the available defect evidence and require engineering review.
+        Relative priority ranks never select or change a treatment.
         RAG and Structural defect labels do not establish structural failure.
       </p>
       <div style={{ marginTop: 24 }}>
@@ -1659,7 +1672,6 @@ export default function Vaisala() {
         <VaisalaSectionDetailPanel
           section={selectedSection}
           surveyMeta={selectedSurvey}
-          treatmentMode={treatmentMode}
           onClose={() => setSelectedSection(null)}
         />
       )}

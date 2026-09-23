@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from services.vaisala_qc import calculate_qc
+from services.vaisala_treatments import assessment_fields, add_priority_percentiles
 from models.user import User
 from models.vaisala import (
     VaisalaDefectWeight,
@@ -36,7 +37,6 @@ from services.vaisala_scoring import (
     RAG_VALIDATED_WEIGHTS,
     assign_rag,
     assign_treatment,
-    assign_treatment_percentile,
     detect_weight_drift,
     parse_raw_csv,
     parse_raw_xlsx,
@@ -125,6 +125,8 @@ def _interval_to_section_dict(iv, survey_id: int) -> dict:
         "survey_id": survey_id,
         "section_ref": iv.section_ref,
         "chunk_label": chunk_label,
+        "assessment_scope": "10m",
+        "defect_evidence_complete": getattr(iv, 'defect_evidence_complete', None),
         "road_name": iv.road_name,
         "net_reference": iv.net_reference,
         "urban_rural": iv.urban_rural,
@@ -138,12 +140,12 @@ def _interval_to_section_dict(iv, survey_id: int) -> dict:
         "primary_defect_contribution": iv.primary_defect_contribution,
         "secondary_defect": None,
         "secondary_defect_contribution": None,
-        "structural_pct": round((iv.structural or 0.0) * 100, 2),
-        "localised_pct":  round((iv.localised  or 0.0) * 100, 2),
-        "dressing_pct":   round((iv.dressing   or 0.0) * 100, 2),
-        "micro_pct":      round((iv.micro      or 0.0) * 100, 2),
-        "alligator_pct":  round((iv.alligator  or 0.0) * 100, 2),
-        "edge_pct":       round((iv.edge       or 0.0) * 100, 2),
+        "structural_pct": round(iv.structural * 100, 2) if iv.structural is not None else None,
+        "localised_pct": round(iv.localised * 100, 2) if iv.localised is not None else None,
+        "dressing_pct": round(iv.dressing * 100, 2) if iv.dressing is not None else None,
+        "micro_pct": round(iv.micro * 100, 2) if iv.micro is not None else None,
+        "alligator_pct": round(iv.alligator * 100, 2) if iv.alligator is not None else None,
+        "edge_pct": round(iv.edge * 100, 2) if iv.edge is not None else None,
         "road_surface_condition": iv.road_surface_condition,
         "road_surface_condition_class": iv.road_surface_condition_class,
         "asphalt_condition": iv.asphalt_condition,
@@ -243,6 +245,10 @@ def _intervals_to_100m_sections(intervals: list, survey_id: int) -> list[dict]:
                 "survey_id": survey_id,
                 "section_ref": section_ref,
                 "chunk_label": chunk_label,
+                "assessment_scope": "100m",
+                "defect_evidence_complete": all(getattr(iv, 'defect_evidence_complete', None) is True for iv in chunk),
+                "observed_defect_groups": [field + '_pct' for field in ('structural', 'alligator', 'localised', 'dressing', 'micro', 'edge')
+                                           if any((getattr(iv, field, None) or 0) > 0 for iv in chunk)],
                 "road_name": chunk[0].road_name,
                 "net_reference": chunk[0].net_reference,
                 "urban_rural": chunk[0].urban_rural,
@@ -256,12 +262,12 @@ def _intervals_to_100m_sections(intervals: list, survey_id: int) -> list[dict]:
                 "primary_defect_contribution": best.primary_defect_contribution,
                 "secondary_defect": None,
                 "secondary_defect_contribution": None,
-                "structural_pct": round(struct * 100, 2),
-                "localised_pct":  round(local  * 100, 2),
-                "dressing_pct":   round(dress  * 100, 2),
-                "micro_pct":      round(micro_v * 100, 2),
-                "alligator_pct":  round(allig  * 100, 2),
-                "edge_pct":       round(edge   * 100, 2),
+                "structural_pct": round(struct * 100, 2) if all(iv.structural is not None for iv in chunk) else None,
+                "localised_pct": round(local * 100, 2) if all(iv.localised is not None for iv in chunk) else None,
+                "dressing_pct": round(dress * 100, 2) if all(iv.dressing is not None for iv in chunk) else None,
+                "micro_pct": round(micro_v * 100, 2) if all(iv.micro is not None for iv in chunk) else None,
+                "alligator_pct": round(allig * 100, 2) if all(iv.alligator is not None for iv in chunk) else None,
+                "edge_pct": round(edge * 100, 2) if all(iv.edge is not None for iv in chunk) else None,
                 "road_surface_condition": rsc,
                 "road_surface_condition_class": None,
                 "asphalt_condition": asph,
@@ -289,6 +295,7 @@ _SECTION_OUT_FIELDS = [
     "qc_completeness_pct", "qc_completeness_band",
     "qc_reliability_pct", "qc_reliability_band",
     "defect_proportions",
+    "defect_evidence_complete",
     "severity_tier_pcts",
     "chunk_label",
 ]
@@ -320,7 +327,7 @@ def _db_sections_as_dicts(db: Session, survey_id: int, urban_rural: Optional[str
     return [_to_dict_row(s) for s in q.all()]
 
 
-def _build_view_rows(db: Session, survey_id: int, merge_scale: str, split: str) -> list[dict]:
+def _build_raw_view_rows(db: Session, survey_id: int, merge_scale: str, split: str) -> list[dict]:
     """Return dict rows for the requested view.
 
     Urban rows always use section scale (per priority_dst.html brief: 'urban roads always score
@@ -352,21 +359,22 @@ def _build_view_rows(db: Session, survey_id: int, merge_scale: str, split: str) 
     return urban_section + rural_scaled
 
 
-def _apply_percentile_treatments(rows: list[dict]) -> None:
-    """Overwrite each row's treatment based on percentile rank of priority_score across the full set.
+def _build_view_rows(db: Session, survey_id: int, merge_scale: str, split: str) -> list[dict]:
+    rows = _build_raw_view_rows(db, survey_id, merge_scale, split)
+    section_ids = {}
+    if any(row.get('assessment_scope') in ('10m', '100m') for row in rows):
+        section_ids = {s.section_ref: s.id for s in db.query(VaisalaSection).filter_by(survey_id=survey_id).all()}
+    for row in rows:
+        row['assessment_scope'] = row.get('assessment_scope', 'section')
+        row['narrative_section_id'] = row['id'] if row['assessment_scope'] == 'section' else section_ids.get(row['section_ref'])
+        row.update(assessment_fields(row))
+    add_priority_percentiles(rows)
+    return rows
 
-    Mirrors priority_dst.html assignTreatmentsByPercentile: sort ascending by score, rank 100 = worst,
-    then choose band from PERCENTILE_TREATMENTS. Rows without a numeric score get '—'.
-    """
-    scored = [r for r in rows if r.get("priority_score") is not None]
-    unscored = [r for r in rows if r.get("priority_score") is None]
-    scored.sort(key=lambda r: r["priority_score"])
-    n = len(scored)
-    for idx, r in enumerate(scored):
-        pct = (idx / (n - 1)) * 100 if n > 1 else 100
-        r["treatment"] = assign_treatment_percentile(pct)
-    for r in unscored:
-        r["treatment"] = "—"
+
+def _apply_percentile_treatments(rows: list[dict]) -> None:
+    """Legacy internal entry point: annotate relative priority only, never assign a treatment."""
+    add_priority_percentiles(rows)
 
 
 def _scaled_section_rows(db: Session, survey_id: int, merge_scale: str) -> list[dict]:
@@ -389,7 +397,8 @@ def _filter_and_sort_rows(
     if rag_band:
         rows = [r for r in rows if r.get("rag_band") == rag_band]
     if treatment:
-        rows = [r for r in rows if r.get("treatment") == treatment]
+        rows = [r for r in rows if r.get("treatment") == treatment or any(
+            c['name'] == treatment for c in r.get('treatment_assessment', {}).get('candidates', []))]
     valid = [r for r in rows if r.get(sort_by) is not None]
     nulls = [r for r in rows if r.get(sort_by) is None]
     valid.sort(key=lambda r: r.get(sort_by), reverse=(sort_dir != "asc"))
@@ -601,13 +610,17 @@ def survey_stats(
     rag_counts: dict = {"Red": 0, "Amber": 0, "Green": 0}
     rag_length: dict = {"Red": 0.0, "Amber": 0.0, "Green": 0.0}
     treatment_counts: dict = {}
+    action_counts: dict = {}
 
     for r in rows:
         b = r.get("rag_band") or "Green"
         rag_counts[b] = rag_counts.get(b, 0) + 1
         rag_length[b] = rag_length.get(b, 0.0) + (r.get("length_m") or 0) / 1000
-        t = r.get("treatment") or "Monitor / Patching"
-        treatment_counts[t] = treatment_counts.get(t, 0) + 1
+        action = r.get("recommended_action") or "Inspect"
+        action_counts[action] = action_counts.get(action, 0) + 1
+        for candidate in r.get('treatment_assessment', {}).get('candidates', []):
+            name = candidate['name']
+            treatment_counts[name] = treatment_counts.get(name, 0) + 1
 
     has_urban_rural = (
         db.query(VaisalaSection.id)
@@ -627,6 +640,7 @@ def survey_stats(
         rag_length_km={k: round(v, 2) for k, v in rag_length.items()},
         has_weight_drift=survey.has_weight_drift,
         top_treatments=treatment_counts,
+        action_counts=action_counts,
         has_urban_rural=has_urban_rural,
     )
 
@@ -687,12 +701,11 @@ def all_sections(
 
 _LINK_HDR_PATTERN = __import__("re").compile(r"link|url|hyperlink|video", __import__("re").IGNORECASE)
 RAG_FILL = {"Red": "FFC0432F", "Amber": "FFD9A51C", "Green": "FF3A7D44"}
-TREATMENT_FILL = {
-    "Resurfacing":       "FFC0432F",
-    "Patching":          "FFD9862A",
-    "Surface Dressing":  "FFD9A51C",
-    "Micro-surfacing":   "FF7A9B6E",
-    "Monitor / Patching":"FF4C6B6F",
+ACTION_FILL = {
+    "Investigate": "FFC0432F",
+    "Inspect": "FFD9862A",
+    "Appraise maintenance options": "FFD9A51C",
+    "Monitor": "FF4C6B6F",
 }
 
 
@@ -715,9 +728,7 @@ def export_csv(
         raise HTTPException(400, "format must be one of: csv, xlsx, shp")
     effective_scale = "section" if split == "urban" else merge_scale
 
-    # Human-readable column layout (label -> row key), mirroring priority_dst.html exportData().
-    # Defect-proportion columns only meaningful when treatment_mode='defect' (per ref: those
-    # proportions are what the defect-pattern algorithm consumed; percentile mode ignores them).
+    # Human-readable evidence and conditional recommendations, independent of ranking mode.
     base_layout: list[tuple[str, str]] = [
         ("Section",                        "section_ref"),
         ("Extent",                         "chunk_label"),
@@ -734,7 +745,16 @@ def export_csv(
         ("List 4 Weighted Score",          "priority_score"),
         ("List 4 Worst Interval Score",    "worst_interval_score"),
         ("RAG Band",                       "rag_band"),
-        ("List 4 Treatment",               "treatment"),
+        ("Next action",                    "recommended_action"),
+        ("Action rationale",               "assessment_reason"),
+        ("Conditional candidates",         "candidate_summary"),
+        ("Observed evidence",              "assessment_evidence"),
+        ("Candidate prerequisites",        "candidate_conditions"),
+        ("Candidate cautions",             "candidate_cautions"),
+        ("Evidence gaps",                  "evidence_gaps"),
+        ("Assessment version",             "assessment_version"),
+        ("Assessment scale",               "assessment_scope"),
+        ("Relative priority percentile",   "priority_percentile"),
         ("Primary Defect",                 "primary_defect"),
         ("Primary Defect Contribution",    "primary_defect_contribution"),
         ("Secondary Defect",               "secondary_defect"),
@@ -754,7 +774,7 @@ def export_csv(
         ("Reading Reliability (%)",       "qc_reliability_pct"),
         ("Reading Reliability Band",      "qc_reliability_band"),
     ]
-    layout = base_layout + (defect_layout if treatment_mode == "defect" else []) + qc_layout
+    layout = base_layout + defect_layout + qc_layout
 
     rows = _build_view_rows(db, survey_id, effective_scale, split)
     if treatment_mode == "percentile":
@@ -822,7 +842,7 @@ def export_csv(
         cell.alignment = Alignment(horizontal="left", vertical="center")
 
     rag_col_idx = labels.index("RAG Band") + 1 if "RAG Band" in labels else None
-    tmt_col_idx = labels.index("List 4 Treatment") + 1 if "List 4 Treatment" in labels else None
+    tmt_col_idx = labels.index("Next action") + 1
     link_col_idxs = [labels.index(l) + 1 for l in extras_labels if _LINK_HDR_PATTERN.search(l)]
 
     for s in rows:
@@ -836,8 +856,8 @@ def export_csv(
                 ws.cell(row=row_num, column=rag_col_idx).fill = PatternFill(fill_type="solid", start_color=argb, end_color=argb)
                 ws.cell(row=row_num, column=rag_col_idx).font = Font(bold=True, color="FFFFFFFF")
         if tmt_col_idx:
-            t = row_dict.get("List 4 Treatment")
-            argb = TREATMENT_FILL.get(t)
+            t = row_dict.get("Next action")
+            argb = ACTION_FILL.get(t)
             if argb:
                 ws.cell(row=row_num, column=tmt_col_idx).fill = PatternFill(fill_type="solid", start_color=argb, end_color=argb)
                 ws.cell(row=row_num, column=tmt_col_idx).font = Font(color="FFFFFFFF")
@@ -905,6 +925,10 @@ def export_csv(
         ("WorstScore", "worst_interval_score"),
         ("RAG",        "rag_band"),
         ("Treatment",  "treatment"),
+        ("NextAction", "recommended_action"),
+        ("RankPct",    "priority_percentile"),
+        ("Scale",      "assessment_scope"),
+        ("ModelVer",   "assessment_version"),
         ("PrimDefect", "primary_defect"),
         ("PrimContr",  "primary_defect_contribution"),
         ("StructPct",  "structural_pct"),
@@ -949,6 +973,16 @@ def export_csv(
 
         stream = io.BytesIO()
         with _zipfile.ZipFile(stream, "w", _zipfile.ZIP_DEFLATED) as zf:
+            # DBF strings are limited to 254 bytes; retain full rationale in a sidecar.
+            zf.writestr('treatment_assessments.json', json.dumps([
+                {key: r.get(key) for key in ('section_ref', 'chunk_label', 'assessment_scope',
+                 'priority_percentile', 'treatment_assessment')} for r in rows
+            ], ensure_ascii=False, indent=2))
+            zf.writestr('README.txt', 'Treatment fields contain conditional candidates, not approved designs. '
+                       'NextAction is the screening action. See treatment_assessments.json for full evidence, '
+                       'prerequisites and cautions. RankPct is relative priority within Scale, not treatment suitability. '
+                       'DBF text may be truncated; unmatched survey rows remain in the JSON sidecar. '
+                       'Scaled rows use full section geometry; Extent identifies the assessed interval, not clipped geometry.')
             for f in _os.listdir(tmp):
                 zf.write(_os.path.join(tmp, f), arcname=f)
         stream.seek(0)
@@ -1183,7 +1217,8 @@ def network_features_for_survey(
         if r is not None:
             for k in ("section_ref", "chunk_label", "road_name", "net_reference", "road_class",
                       "urban_rural", "length_m", "priority_score", "worst_interval_score",
-                      "rag_band", "treatment",
+                      "rag_band", "treatment", "recommended_action", "treatment_assessment",
+                      "priority_percentile", "assessment_scope",
                       "primary_defect", "primary_defect_contribution",
                       "secondary_defect", "secondary_defect_contribution",
                       "structural_pct", "alligator_pct", "localised_pct",
