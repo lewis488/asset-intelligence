@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { analysisApi } from '../api/client'
 
-// ── Primitives (same as AssetDetailPanel) ────────────────────────────────────
+// ── Primitives ────────────────────────────────────────────────────────────────
 
 const Section = ({ title, children }) => (
   <div className="detail-section">
@@ -21,9 +21,36 @@ const Row = ({ label, value }) => (
 
 const dec = (v, d = 2) => v != null ? Number(v).toFixed(d) : '—'
 const pct = (v) => v != null ? `${(Number(v) * 100).toFixed(0)}%` : '—'   // 0–1 fractions
-const pct100 = (v) => v != null ? `${Number(v).toFixed(1)}%` : '—'        // 0–100 values
+const pct100 = (v) => v != null ? `${Number(v).toFixed(1)}%` : '—'        // 0–100 whole-%
 
 const RAG_COLOUR = { Red: '#c0432f', Amber: '#d9a51c', Green: '#3a7d44' }
+
+// ── Severity tier constants (must match backend DEFECT_SEVERITY_TIERS) ────────
+
+const TIER_ORDER = ['Structural', 'High', 'Medium', 'Low']
+
+const TIER_DEFECTS = {
+  Structural: [
+    'Subsidence', 'Severe pothole', 'Alligator cracking',
+    'Wheel track cracking', 'Severe longitudinal cracking', 'Severe transverse cracking',
+  ],
+  High: ['Moderate pothole', 'Binder bleeding'],
+  Medium: ['Minor pothole', 'Severe fretting', 'Defective asphalt overlay'],
+  Low: [
+    'Left edge deterioration', 'Right edge deterioration',
+    'Moderate longitudinal cracking', 'Moderate transverse cracking',
+    'Moderate fretting', 'Minor longitudinal cracking', 'Minor transverse cracking',
+  ],
+}
+
+const TIER_COLOUR = {
+  Structural: 'var(--color-red)',
+  High:       'var(--color-amber)',
+  Medium:     '#5B82B8',
+  Low:        'var(--color-green)',
+}
+
+// ── Sub-components ────────────────────────────────────────────────────────────
 
 function RagBadge({ band }) {
   if (!band) return <span style={{ color: 'var(--muted)' }}>—</span>
@@ -38,22 +65,95 @@ function RagBadge({ band }) {
   )
 }
 
-function DefectBar({ label, value }) {
-  if (value == null || value === 0) return null
-  const colour = label === 'Structural' || label === 'Alligator' ? '#c0432f'
-    : label === 'Localised' ? '#d9a51c'
-    : '#3a7d44'
+function TierRow({ tier, tierPct, defectProportions, expanded, onToggle }) {
+  const colour = TIER_COLOUR[tier] || '#888'
+  const present = (TIER_DEFECTS[tier] || [])
+    .map(k => ({ name: k, value: defectProportions?.[k] ?? 0 }))
+    .filter(d => d.value > 0)
+    .sort((a, b) => b.value - a.value)
+  const hasPct = tierPct != null && tierPct > 0
+
   return (
-    <div style={{ marginBottom: 6 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 2 }}>
-        <span style={{ color: 'var(--muted)' }}>{label}</span>
-        <span style={{ fontWeight: 600 }}>{pct100(value)}</span>
-      </div>
-      <div style={{ height: 5, background: 'var(--border)', borderRadius: 3 }}>
+    <div style={{
+      border: '1px solid var(--color-border)',
+      borderRadius: 'var(--radius-sm)',
+      overflow: 'hidden',
+      marginBottom: 6,
+    }}>
+      <button
+        onClick={() => present.length > 0 && onToggle()}
+        style={{
+          width: '100%', background: 'none', border: 'none',
+          cursor: present.length > 0 ? 'pointer' : 'default',
+          padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 8,
+          textAlign: 'left', fontFamily: 'var(--font-ui)',
+        }}
+      >
+        <span style={{
+          fontSize: 12, fontWeight: 700, letterSpacing: '0.03em',
+          color: hasPct ? colour : 'var(--color-text-muted)',
+          minWidth: 72,
+        }}>{tier.toUpperCase()}</span>
+        <span style={{ flex: 1 }} />
+        <span style={{
+          fontSize: 13, fontWeight: 700,
+          color: hasPct ? 'var(--color-text)' : 'var(--color-text-muted)',
+        }}>
+          {hasPct ? `${Number(tierPct).toFixed(1)}%` : '—'}
+        </span>
+        {present.length > 0 && (
+          <span style={{ fontSize: 10, color: 'var(--color-text-muted)', marginLeft: 4 }}>
+            {expanded ? '▲' : '▼'}
+          </span>
+        )}
+      </button>
+
+      {hasPct && (
+        <div style={{ height: 3, background: 'var(--color-border-soft)' }}>
+          <div style={{
+            height: '100%', background: colour,
+            width: `${Math.min(100, tierPct)}%`,
+          }} />
+        </div>
+      )}
+
+      {expanded && present.length > 0 && (
         <div style={{
-          height: '100%', borderRadius: 3,
-          background: colour,
-          width: `${Math.min(100, value)}%`,
+          padding: '6px 10px 8px',
+          borderTop: '1px solid var(--color-border-soft)',
+          background: 'var(--color-border-soft)',
+        }}>
+          {present.map(d => (
+            <div key={d.name} style={{
+              display: 'flex', justifyContent: 'space-between',
+              fontSize: 12, padding: '3px 0',
+            }}>
+              <span style={{ color: 'var(--color-text-muted)' }}>{d.name}</span>
+              <span style={{ fontWeight: 600 }}>{Number(d.value).toFixed(1)}%</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TreatmentSuitabilityBar({ label, value, colour }) {
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{
+        display: 'flex', justifyContent: 'space-between',
+        fontSize: 13, marginBottom: 4,
+      }}>
+        <span>{label}</span>
+        <span style={{ fontWeight: 600 }}>
+          {value != null && value > 0 ? `${Number(value).toFixed(1)}%` : '—'}
+        </span>
+      </div>
+      <div style={{ height: 6, background: 'var(--color-border)', borderRadius: 3 }}>
+        <div style={{
+          height: '100%', borderRadius: 3, background: colour,
+          width: `${Math.min(100, value || 0)}%`,
         }} />
       </div>
     </div>
@@ -66,12 +166,14 @@ export default function VaisalaSectionDetailPanel({ section, surveyMeta, onClose
   const [narrative, setNarrative] = useState(null)
   const [narrativeLoading, setNarrativeLoading] = useState(false)
   const [narrativeError, setNarrativeError] = useState('')
+  const [expandedTiers, setExpandedTiers] = useState({})
 
   useEffect(() => {
     if (!section) return
     setNarrative(null)
     setNarrativeError('')
     setNarrativeLoading(true)
+    setExpandedTiers({})
     analysisApi.vaisalaSectionNarrative(section.id)
       .then(r => setNarrative(r.data))
       .catch(e => setNarrativeError(e.response?.data?.detail || 'Narrative generation failed'))
@@ -84,13 +186,14 @@ export default function VaisalaSectionDetailPanel({ section, surveyMeta, onClose
     || section.asphalt_condition != null
     || section.pas2161_category != null
   const hasQC = section.qc_completeness_band != null || section.qc_reliability_band != null
-  const hasDefectGroups = [
-    section.structural_pct, section.localised_pct, section.dressing_pct,
-    section.micro_pct, section.alligator_pct, section.edge_pct,
-  ].some(v => v != null && v > 0)
+  const hasSeverityTiers = section.severity_tier_pcts != null
+  const hasTreatmentSuitability = section.dressing_pct != null || section.micro_pct != null
 
   const ragColour = RAG_COLOUR[section.rag_band] || '#888'
   const lowQC = section.qc_completeness_band === 'Low' || section.qc_reliability_band === 'Low'
+
+  const toggleTier = (tier) =>
+    setExpandedTiers(prev => ({ ...prev, [tier]: !prev[tier] }))
 
   return (
     <div
@@ -163,24 +266,22 @@ export default function VaisalaSectionDetailPanel({ section, surveyMeta, onClose
           </div>
         </Section>
 
-        {/* ── Defect analysis ─────────────────────────────────────── */}
-        {(section.primary_defect || hasDefectGroups) && (
+        {/* ── Defect Analysis (primary/secondary only) ────────────── */}
+        {section.primary_defect && (
           <Section title="Defect Analysis">
-            {section.primary_defect && (
-              <Row
-                label="Primary defect"
-                value={
-                  <span>
-                    <strong>{section.primary_defect}</strong>
-                    {section.primary_defect_contribution != null && (
-                      <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>
-                        ({dec(section.primary_defect_contribution, 4)} score units)
-                      </span>
-                    )}
-                  </span>
-                }
-              />
-            )}
+            <Row
+              label="Primary defect"
+              value={
+                <span>
+                  <strong>{section.primary_defect}</strong>
+                  {section.primary_defect_contribution != null && (
+                    <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>
+                      ({dec(section.primary_defect_contribution, 4)} score units)
+                    </span>
+                  )}
+                </span>
+              }
+            />
             {section.secondary_defect && (
               <Row
                 label="Secondary defect"
@@ -196,20 +297,76 @@ export default function VaisalaSectionDetailPanel({ section, surveyMeta, onClose
                 }
               />
             )}
-            {hasDefectGroups && (
-              <div style={{ marginTop: 12 }}>
-                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
-                  Defect group proportions (% of weighted score)
-                </div>
-                <DefectBar label="Structural"        value={section.structural_pct} />
-                <DefectBar label="Alligator"         value={section.alligator_pct} />
-                <DefectBar label="Localised"         value={section.localised_pct} />
-                <DefectBar label="Surface Dressing"  value={section.dressing_pct} />
-                <DefectBar label="Micro-surfacing"   value={section.micro_pct} />
-                <DefectBar label="Edge"              value={section.edge_pct} />
+          </Section>
+        )}
+
+        {/* ── Panel 1: Defect Severity Breakdown ──────────────────── */}
+        {hasSeverityTiers && (
+          <Section title="Defect Severity Breakdown">
+
+            {/* Top-line structural indicator — treatment-group metric, MAX-based */}
+            {section.structural_pct != null && (
+              <div style={{
+                background: section.structural_pct > 0
+                  ? 'var(--color-red-bg)' : 'var(--color-border-soft)',
+                border: `1px solid ${section.structural_pct > 0 ? 'var(--color-red)' : 'var(--color-border)'}33`,
+                borderRadius: 'var(--radius-sm)',
+                padding: '8px 10px',
+                marginBottom: 12,
+                fontSize: 13,
+              }}>
+                <span style={{
+                  fontWeight: 700,
+                  color: section.structural_pct > 0 ? 'var(--color-red)' : 'var(--color-text-muted)',
+                }}>
+                  Severe structural defect:{' '}
+                  {section.structural_pct > 0 ? `${Number(section.structural_pct).toFixed(1)}% of section` : 'not detected'}
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--color-text-muted)', display: 'block', marginTop: 3 }}>
+                  Coverage flag (MAX-based). Not directly comparable to tier percentages below.
+                </span>
               </div>
             )}
+
+            {/* Tier rows — Structural/High/Medium/Low */}
+            <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 8 }}>
+              % of section length · click tier to expand defects
+            </div>
+            {TIER_ORDER.map(tier => (
+              <TierRow
+                key={tier}
+                tier={tier}
+                tierPct={section.severity_tier_pcts?.[tier]}
+                defectProportions={section.defect_proportions}
+                expanded={!!expandedTiers[tier]}
+                onToggle={() => toggleTier(tier)}
+              />
+            ))}
           </Section>
+        )}
+
+        {/* ── Panel 2: Treatment Suitability ──────────────────────── */}
+        {hasTreatmentSuitability && (
+          <div className="detail-section" style={{
+            borderTop: '2px solid var(--color-border)',
+            paddingTop: 14,
+          }}>
+            <div className="detail-section-title">Treatment Suitability</div>
+            <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
+              How well this section's defect profile matches each candidate treatment.
+              Feeds the recommendation above.
+            </p>
+            <TreatmentSuitabilityBar
+              label="Surface Dressing"
+              value={section.dressing_pct}
+              colour="var(--color-amber)"
+            />
+            <TreatmentSuitabilityBar
+              label="Micro-surfacing"
+              value={section.micro_pct}
+              colour="#5B82B8"
+            />
+          </div>
         )}
 
         {/* ── Native Vaisala scores ────────────────────────────────── */}
