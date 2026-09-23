@@ -20,7 +20,6 @@ const Row = ({ label, value }) => (
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const dec = (v, d = 2) => v != null ? Number(v).toFixed(d) : '—'
-const pct = (v) => v != null ? `${(Number(v) * 100).toFixed(0)}%` : '—'   // 0–1 fractions
 const pct100 = (v) => v != null ? `${Number(v).toFixed(1)}%` : '—'        // 0–100 whole-%
 
 const RAG_COLOUR = { Red: '#c0432f', Amber: '#d9a51c', Green: '#3a7d44' }
@@ -397,7 +396,7 @@ export default function VaisalaSectionDetailPanel({ section, surveyMeta, onClose
                 label="Survey completeness"
                 value={
                   <span>
-                    {pct(section.qc_completeness_pct)}
+                    {pct100(section.qc_completeness_pct)}
                     {section.qc_completeness_band && (
                       <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700,
                         color: section.qc_completeness_band === 'Low' ? '#c0432f'
@@ -414,7 +413,7 @@ export default function VaisalaSectionDetailPanel({ section, surveyMeta, onClose
                 label="Reading reliability"
                 value={
                   <span>
-                    {pct(section.qc_reliability_pct)}
+                    {pct100(section.qc_reliability_pct)}
                     {section.qc_reliability_band && (
                       <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700,
                         color: section.qc_reliability_band === 'Low' ? '#c0432f'

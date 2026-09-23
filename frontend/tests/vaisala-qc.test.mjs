@@ -42,6 +42,12 @@ for (const hasQC of [true, false]) test(hasQC ? 'QC renders whole percentages' :
   })
   await page.goto(baseURL + '/')
   await page.getByRole('link', { name: 'Vaisala DST' }).click()
+  if (hasQC) {
+    await page.getByRole('cell', { name: 'A', exact: true }).click()
+    await page.getByText(/^20\.0%/).waitFor()
+    await page.getByText(/^100\.0%/).waitFor()
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
+  }
   await page.getByRole('button', { name: 'QC', exact: true }).click()
   if (hasQC) {
     await page.getByText('20% network avg.').waitFor()
