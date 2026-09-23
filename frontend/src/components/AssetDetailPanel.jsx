@@ -251,15 +251,19 @@ export default function AssetDetailPanel({ asset, onClose }) {
         )}
 
         {/* TREATMENT */}
-        <Section title="Treatment Recommendation">
+        <Section title="Indicative treatment candidate">
           <div style={{ fontWeight: 500, fontSize: 14, marginBottom: 12, lineHeight: 1.4, color: 'var(--color-text)' }}>
             {asset.treatment_recommendation || 'Not assessed'}
           </div>
-          <Row label="Urgency"    value={<UrgencyBadge value={asset.urgency} />} />
+          <Row label="Screening priority" value={<UrgencyBadge value={asset.urgency} />} />
           {(asset.cost_low_per_m2 > 0 || asset.cost_high_per_m2 > 0) && (
             <Row label="Indicative cost" value={`£${asset.cost_low_per_m2}–${asset.cost_high_per_m2} per m²`} />
           )}
-          <Row label="Confidence" value={asset.confidence || '—'} />
+          <Row label="Dataset availability" value={asset.confidence || '—'} />
+          <p style={{ fontSize: 12, color: 'var(--color-text-dim)', lineHeight: 1.5 }}>
+            Engineering review must confirm the failure mechanism and treatment suitability.
+            Dataset availability is not diagnostic confidence; screening priorities are not approved works deadlines.
+          </p>
           {datasetsUsed.length > 0 && (
             <div style={{ marginTop: 10, fontSize: 12, color: 'var(--color-text-dim)' }}>
               Based on: {datasetsUsed.join(', ')}

@@ -342,7 +342,7 @@ def asset_narrative(
         sd = row["scanner_data"]
         parts.append(
             f"SCANNER {sd.get('survey_year')}: CI={sd.get('avg_ci')}, {sd.get('rci_band')}, "
-            f"red_pct={sd.get('red_pct') or 0:.0%}"
+            + (f"red_pct={sd['red_pct']:.2f}%" if sd.get('red_pct') is not None else "red_pct=unknown")
         )
         data_used.append("SCANNER")
 
@@ -361,7 +361,7 @@ def asset_narrative(
             f"SCRIM {scr.get('survey_year')}: mean_sfc={scr.get('mean_sfc')}, "
             f"IL_threshold={scr.get('sfct_threshold')}, "
             f"{'BELOW' if scr.get('safety_flagged') else 'above'} investigatory level, "
-            f"pct_below_il={scr.get('pct_below_il') or 0:.0%}"
+            + (f"pct_below_il={scr['pct_below_il']:.2f}%" if scr.get('pct_below_il') is not None else "pct_below_il=unknown")
         )
         data_used.append("SCRIM")
 
@@ -374,8 +374,8 @@ def asset_narrative(
         )
         data_used.append("Reactive")
 
-    parts.append(f"Treatment: {row.get('treatment_recommendation', 'Not assessed')}")
-    parts.append(f"Urgency: {row.get('urgency', 'Not assessed')}")
+    parts.append(f"Indicative screening output: {row.get('treatment_recommendation', 'Not assessed')}")
+    parts.append(f"Screening priority (not an approved works deadline): {row.get('urgency', 'Not assessed')}")
     parts.append(f"Composite score: {row.get('composite_score')} ({row.get('risk_band')})")
 
     context = "\n".join(parts)
@@ -439,7 +439,8 @@ def vaisala_section_narrative(
             "thresholds were derived — RAG banding for this section should be treated as indicative only."
             if survey.has_weight_drift else ""
         ),
-        f"Treatment recommendation: {section.treatment or '—'}",
+        f"Indicative treatment candidate: {section.treatment or '—'} (stored section-level screening output; requires engineering review)",
+        "Structural capacity, drainage cause, site inspection and treatment approval: not supplied in this context.",
     ]
 
     if section.primary_defect:
@@ -460,7 +461,14 @@ def vaisala_section_narrative(
         if v is not None:
             grp_parts.append(f"{label}={v:.1f}%")
     if grp_parts:
-        parts.append("Defect group proportions (% of weighted score): " + " · ".join(grp_parts))
+        parts.append("Defect group proportions (whole percentages; length-weighted group measures, not suitability probabilities): " + " · ".join(grp_parts))
+        parts.append("Groups can overlap. Structural is a defect grouping, not confirmed structural failure.")
+
+    if section.defect_proportions:
+        parts.append("Individual defect proportions (whole percentages): " + " · ".join(
+            f"{name}={value:.1f}%" for name, value in section.defect_proportions.items()
+            if value is not None
+        ))
 
     # Native Vaisala scores
     native = []
@@ -475,26 +483,31 @@ def vaisala_section_narrative(
     if native:
         parts.append("Vaisala native condition scores: " + " · ".join(native))
 
-    # QC signals (stored as 0–1 fractions)
+    # QC signals are stored as whole percentages; missing is unknown.
     qc_parts = []
     if section.qc_completeness_pct is not None:
         qc_parts.append(
-            f"Completeness={section.qc_completeness_pct * 100:.0f}%"
+            f"Completeness={section.qc_completeness_pct:.1f}%"
             + (f" ({section.qc_completeness_band})" if section.qc_completeness_band else "")
         )
     if section.qc_reliability_pct is not None:
         qc_parts.append(
-            f"Reliability={section.qc_reliability_pct * 100:.0f}%"
+            f"Reliability={section.qc_reliability_pct:.1f}%"
             + (f" ({section.qc_reliability_band})" if section.qc_reliability_band else "")
         )
     if qc_parts:
         parts.append("QC signals: " + " · ".join(qc_parts))
+        if section.qc_completeness_pct is None or section.qc_reliability_pct is None:
+            parts.append("One QC metric is missing: its quality is unknown.")
         low_qc = (section.qc_completeness_band == "Low") or (section.qc_reliability_band == "Low")
         if low_qc:
             parts.append(
                 "⚠ One or more QC signals are Low — this section's score and treatment should be "
                 "treated as provisional pending video validation."
             )
+    else:
+        parts.append("QC signals: unknown (not supplied).")
+    parts.append("QC measures survey coverage and validity, not diagnostic certainty or treatment suitability.")
 
     context = "\n".join(parts)
 

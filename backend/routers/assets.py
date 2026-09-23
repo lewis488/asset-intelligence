@@ -152,7 +152,7 @@ def _score_asset(asset: Asset, db: Session) -> dict:
         _red = scanner.red_pct or 0.0
         if _rci == "Red" and _red > 15:
             if reactive and (reactive.emergency_jobs_2hr or 0) > 0:
-                treatment = "Urgent reconstruction"
+                treatment = "Investigate for deeper repair / reconstruction"
                 urgency = "Immediate"
                 cost_low, cost_high = 80, 150
             else:
@@ -202,9 +202,12 @@ def _score_asset(asset: Asset, db: Session) -> dict:
             urgency = "Routine inspection"
             cost_low, cost_high = 0, 0
 
+    if cost_high > 0:
+        treatment += " — indicative candidate; engineering review required"
+
     if scrim and scrim.safety_flagged:
-        treatment = treatment + " + Safety: skid resistance treatment"
-        urgency = "Immediate"
+        treatment += " + Safety: skid resistance investigation required"
+        urgency = "Site-risk assessment required; apply authority response policy"
 
     if datasets_present >= 3:
         rec_confidence = "High"

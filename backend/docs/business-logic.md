@@ -112,9 +112,11 @@ Treatment strings and urgency labels are derived from condition data. Cost bands
 | edge_flagged | Edge treatment | Programme next year | 25–38 |
 | None flagged | Monitor | Routine inspection | 0 |
 
-**SCRIM override:** When `safety_flagged == True`, appends "+ Safety: skid resistance treatment" and forces `urgency = "Immediate"` regardless of condition treatment.
+**Evidence reporting (23 September 2026):** The table above describes legacy screening categories, not approved designs. Intervention strings now append "indicative candidate; engineering review required". The emergency-reactive branch reads "Investigate for deeper repair / reconstruction".
 
-**Confidence rating:** High = 3–4 datasets, Medium = 2, Low = 0–1.
+**SCRIM override:** When `safety_flagged == True`, appends "+ Safety: skid resistance investigation required" and sets urgency to "Site-risk assessment required; apply authority response policy". The safety flag and score remain unchanged.
+
+**Dataset availability rating:** High = 3–4 datasets, Medium = 2, Low = 0–1. The API retains the `confidence` field; this is not diagnostic certainty or treatment readiness.
 
 **Note:** Cost bands are unit rates only. Total cost per section (unit rate × length) is NOT calculated in the application. See technical-debt.md.
 
@@ -178,5 +180,7 @@ Reason: field names differ between SHP exports, XLSX exports, and Confirm export
 `POST /analysis/query` supports multi-turn free-text queries against the same loaded dataset.
 
 Knowledge base (`services/knowledge.py:ALL_KNOWLEDGE`) is injected as cached system prompt content on every LLM call.
+
+See [evidence-reporting.md](evidence-reporting.md) for stage 1 interpretation rules, whole-percentage context corrections and reporting limits. Network briefings and chat use the authority-neutral knowledge base; section narratives use the shared evidence rules without that full base.
 
 `GET /analysis/stats` returns KPI statistics without any LLM call.

@@ -161,7 +161,7 @@ function TreatmentSuitabilityBar({ label, value, colour }) {
 
 // ── Panel ─────────────────────────────────────────────────────────────────────
 
-export default function VaisalaSectionDetailPanel({ section, surveyMeta, onClose }) {
+export default function VaisalaSectionDetailPanel({ section, surveyMeta, treatmentMode = 'defect', onClose }) {
   const [narrative, setNarrative] = useState(null)
   const [narrativeLoading, setNarrativeLoading] = useState(false)
   const [narrativeError, setNarrativeError] = useState('')
@@ -259,10 +259,15 @@ export default function VaisalaSectionDetailPanel({ section, surveyMeta, onClose
         </Section>
 
         {/* ── Treatment ───────────────────────────────────────────── */}
-        <Section title="Treatment Recommendation">
+        <Section title={treatmentMode === 'percentile' ? 'Percentile scenario allocation' : 'Indicative treatment candidate'}>
           <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>
             {section.treatment || 'Not assessed'}
           </div>
+          <p style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
+            {treatmentMode === 'percentile'
+              ? 'Allocated by relative rank within this view. This is a planning scenario, not evidence of treatment suitability.'
+              : 'A screening suggestion from the defect rules. Confirm the failure mechanism and pavement suitability through engineering review before selecting treatment.'}
+          </p>
         </Section>
 
         {/* ── Defect Analysis (primary/secondary only) ────────────── */}
@@ -318,18 +323,18 @@ export default function VaisalaSectionDetailPanel({ section, surveyMeta, onClose
                   fontWeight: 700,
                   color: section.structural_pct > 0 ? 'var(--color-red)' : 'var(--color-text-muted)',
                 }}>
-                  Severe structural defect:{' '}
+                  Structural-associated defect indicator:{' '}
                   {section.structural_pct > 0 ? `${Number(section.structural_pct).toFixed(1)}% of section` : 'not detected'}
                 </span>
                 <span style={{ fontSize: 11, color: 'var(--color-text-muted)', display: 'block', marginTop: 3 }}>
-                  Coverage flag (MAX-based). Not directly comparable to tier percentages below.
+                  Group measure, not confirmed structural failure. Not directly comparable to tier percentages below.
                 </span>
               </div>
             )}
 
             {/* Tier rows — Structural/High/Medium/Low */}
             <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 8 }}>
-              % of section length · click tier to expand defects
+              Defect-group percentages · click tier to expand defects. Groups may overlap; Structural is not a diagnosis.
             </div>
             {TIER_ORDER.map(tier => (
               <TierRow
@@ -350,10 +355,10 @@ export default function VaisalaSectionDetailPanel({ section, surveyMeta, onClose
             borderTop: '2px solid var(--color-border)',
             paddingTop: 14,
           }}>
-            <div className="detail-section-title">Treatment Suitability</div>
+            <div className="detail-section-title">Treatment-related defect groups</div>
             <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
-              How well this section's defect profile matches each candidate treatment.
-              Feeds the recommendation above.
+              These percentages describe defect groups used by the screening rules, not the probability
+              that a treatment is suitable. Engineering review must confirm suitability.
             </p>
             <TreatmentSuitabilityBar
               label="Surface Dressing"
@@ -427,13 +432,17 @@ export default function VaisalaSectionDetailPanel({ section, surveyMeta, onClose
             )}
             <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8, fontStyle: 'italic', lineHeight: 1.5 }}>
               Completeness: how much of the section was physically surveyed. Reliability: of what was surveyed,
-              how much Vaisala itself judged valid. These are independent signals.
+              how much Vaisala itself judged valid. These describe survey quality, not diagnostic certainty.
             </p>
           </Section>
         )}
 
         {/* ── AI Assessment ───────────────────────────────────────── */}
         <Section title="AI Assessment">
+          <p style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
+            Assessment uses the stored whole-section evidence and screening candidate, not any percentile
+            allocation or individual interval selected in this view.
+          </p>
           {narrativeLoading && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 9, color: 'var(--muted)', fontSize: 13, padding: '4px 0' }}>
               <span className="spinner" /> Generating assessment…

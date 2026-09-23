@@ -560,14 +560,14 @@ function SplitToggle({ value, onChange }) {
 }
 
 const TREATMENT_MODES = [
-  { key: 'defect',     label: 'Defect pattern', desc: 'engineering-based: treatment from which defects are present' },
-  { key: 'percentile', label: 'Percentile',     desc: 'score-based: worst X% of rows in this view get each treatment' },
+  { key: 'defect',     label: 'Defect pattern', desc: 'Indicative treatment candidates from defect rules; engineering review required' },
+  { key: 'percentile', label: 'Percentile scenario', desc: 'Relative-rank planning allocations within this scale; not treatment suitability' },
 ]
 
 function TreatmentModeToggle({ value, onChange }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 500 }}>Treatment</span>
+      <span style={{ fontSize: 10, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 500 }}>Screening mode</span>
       <div className="seg-control">
         {TREATMENT_MODES.map(s => {
           const active = s.key === value
@@ -1584,7 +1584,7 @@ export default function Vaisala() {
     <div>
       <div className="page-header">
         <h1>Vaisala Survey Analysis</h1>
-        <p>Road condition scoring · RAG banding · Treatment prioritisation</p>
+        <p>Road condition scoring · RAG banding · Treatment screening</p>
       </div>
 
       {surveys.length > 0 && (
@@ -1646,6 +1646,11 @@ export default function Vaisala() {
         </div>
       )}
 
+      <p style={{ fontSize: 12, color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
+        Treatment outputs are indicative screening candidates requiring engineering review.
+        Percentile allocations are planning scenarios, not evidence of suitability.
+        RAG and Structural defect labels do not establish structural failure.
+      </p>
       <div style={{ marginTop: 24 }}>
         <UploadPanel onUploaded={handleUploaded} />
       </div>
@@ -1654,6 +1659,7 @@ export default function Vaisala() {
         <VaisalaSectionDetailPanel
           section={selectedSection}
           surveyMeta={selectedSurvey}
+          treatmentMode={treatmentMode}
           onClose={() => setSelectedSection(null)}
         />
       )}
