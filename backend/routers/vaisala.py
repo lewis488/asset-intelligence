@@ -289,6 +289,7 @@ _SECTION_OUT_FIELDS = [
     "qc_completeness_pct", "qc_completeness_band",
     "qc_reliability_pct", "qc_reliability_band",
     "defect_proportions",
+    "severity_tier_pcts",
     "chunk_label",
 ]
 

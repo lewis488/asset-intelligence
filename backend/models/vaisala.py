@@ -103,6 +103,7 @@ class VaisalaSection(Base):
     qc_reliability_pct = Column(Float)
     qc_reliability_band = Column(String)
     defect_proportions = Column(JSONB, nullable=True)
+    severity_tier_pcts = Column(JSONB, nullable=True)
     asset_id = Column(Integer, ForeignKey("assets.id", ondelete="SET NULL"), nullable=True)
 
     # non-column: chunk_label only applies to interval-derived views (10m/100m); DB sections keep None

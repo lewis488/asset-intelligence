@@ -68,6 +68,23 @@ MICRO_KEYS = frozenset([
 ])
 EDGE_KEYS = frozenset(["Left edge deterioration", "Right edge deterioration"])
 
+# ── Severity tier taxonomy (display-layer only — additive to treatment groups above) ──
+# Separate from STRUCTURAL_KEYS/ALLIGATOR_KEY/etc. which drive assign_treatment().
+# Do NOT use these tiers in treatment logic. structural_pct (treatment group) is unaffected.
+DEFECT_SEVERITY_TIERS: dict[str, frozenset] = {
+    "Structural": frozenset([
+        "Subsidence", "Severe pothole", "Alligator cracking",
+        "Wheel track cracking", "Severe longitudinal cracking", "Severe transverse cracking",
+    ]),
+    "High": frozenset(["Moderate pothole", "Binder bleeding"]),
+    "Medium": frozenset(["Minor pothole", "Severe fretting", "Defective asphalt overlay"]),
+    "Low": frozenset([
+        "Left edge deterioration", "Right edge deterioration",
+        "Moderate longitudinal cracking", "Moderate transverse cracking",
+        "Moderate fretting", "Minor longitudinal cracking", "Minor transverse cracking",
+    ]),
+}
+
 # Default treatment thresholds (match HTML UI defaults)
 STRUCTURAL_THRESH = 0.20   # 20% of length
 ALLIGATOR_TIER_THRESH = 0.15
@@ -305,6 +322,10 @@ def _aggregate_intervals(df: pd.DataFrame, network_key: str, weights: dict[str, 
     allig_col = col_map.get(ALLIGATOR_KEY)
     df["_alligator"]  = pd.to_numeric(df[allig_col], errors="coerce").fillna(0) if allig_col else 0.0
 
+    # Severity tier max per interval (display-layer; independent of treatment groups above)
+    for _tier_name, _tier_keys in DEFECT_SEVERITY_TIERS.items():
+        df[f"_tier_{_tier_name.lower()}"] = _group_max_series(df, _tier_keys, col_map)
+
     # Length column
     df["_len"] = pd.to_numeric(df[length_col], errors="coerce").fillna(10.0) if length_col else 10.0
     df.loc[df["_len"] <= 0, "_len"] = 10.0
@@ -399,6 +420,11 @@ def _aggregate_intervals(df: pd.DataFrame, network_key: str, weights: dict[str, 
         edge_pct       = float(np.dot(grp["_edge"].values,       w)) * 100
         alligator_pct  = float(np.dot(grp["_alligator"].values,  w)) * 100
 
+        severity_tier_pcts = {
+            tier_name: round(float(np.dot(grp[f"_tier_{tier_name.lower()}"].values, w)) * 100, 2)
+            for tier_name in DEFECT_SEVERITY_TIERS
+        }
+
         # Primary/secondary defects from section-level weighted-avg contributions
         raw_proportions = {}
         contribs = {}
@@ -457,6 +483,7 @@ def _aggregate_intervals(df: pd.DataFrame, network_key: str, weights: dict[str, 
             "secondary_defect":              sec_defect,
             "secondary_defect_contribution": round(sec_contr, 4) if sec_contr else None,
             "defect_proportions": raw_proportions if raw_proportions else None,
+            "severity_tier_pcts": severity_tier_pcts if severity_tier_pcts else None,
             "structural_pct": round(structural_pct, 2),
             "localised_pct":  round(localised_pct, 2),
             "dressing_pct":   round(dressing_pct, 2),
