@@ -35,6 +35,7 @@ class VaisalaSectionOut(BaseModel):
     qc_completeness_band: Optional[str]
     qc_reliability_pct: Optional[float]
     qc_reliability_band: Optional[str]
+    defect_proportions: Optional[dict] = None
     chunk_label: Optional[str] = None
 
     model_config = {"from_attributes": True}

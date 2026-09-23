@@ -288,6 +288,7 @@ _SECTION_OUT_FIELDS = [
     "asphalt_condition", "asphalt_condition_class", "pas2161_category",
     "qc_completeness_pct", "qc_completeness_band",
     "qc_reliability_pct", "qc_reliability_band",
+    "defect_proportions",
     "chunk_label",
 ]
 

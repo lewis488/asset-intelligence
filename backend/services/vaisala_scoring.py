@@ -400,9 +400,11 @@ def _aggregate_intervals(df: pd.DataFrame, network_key: str, weights: dict[str, 
         alligator_pct  = float(np.dot(grp["_alligator"].values,  w)) * 100
 
         # Primary/secondary defects from section-level weighted-avg contributions
+        raw_proportions = {}
         contribs = {}
         for key, col in defect_avgs.items():
             v = float(np.dot(pd.to_numeric(grp[col], errors="coerce").fillna(0).values, w))
+            raw_proportions[key] = round(v * 100, 4)
             contribs[key] = v * weights.get(key, 0)
         ranked = sorted(contribs.items(), key=lambda x: x[1], reverse=True)
         pri_defect  = ranked[0][0] if ranked else None
@@ -454,6 +456,7 @@ def _aggregate_intervals(df: pd.DataFrame, network_key: str, weights: dict[str, 
             "primary_defect_contribution": round(pri_contr, 4) if pri_contr else None,
             "secondary_defect":              sec_defect,
             "secondary_defect_contribution": round(sec_contr, 4) if sec_contr else None,
+            "defect_proportions": raw_proportions if raw_proportions else None,
             "structural_pct": round(structural_pct, 2),
             "localised_pct":  round(localised_pct, 2),
             "dressing_pct":   round(dressing_pct, 2),

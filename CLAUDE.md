@@ -36,6 +36,7 @@ API docs (/docs) are intentionally disabled when ENVIRONMENT=production — a 40
 - CVI CI direction: higher = worse (same convention)
 - red_pct, amber_pct, pct_below_il are stored as WHOLE percentages (e.g. 4.35 means 4.35%), never decimal fractions — this caused multiple scoring bugs in early development, do not reintroduce
 - Vaisala percentage fields sourced from Excel %-formatted cells: raw cell value is a 0-1 decimal (90% = 0.90) — multiply by 100 to store as whole percentage, consistent with the rule above
+- defect_proportions JSONB (vaisala_sections) follows the same whole-percentage rule: values are stored as whole % (e.g. 59.99 means 59.99% of section length), not 0-1 decimals. Frontend reads the value directly without multiplication.
 - Column name matching for fields like PAS 2161 must be alias-based (case-insensitive partial match), not a single hardcoded string — field names differ between SHP and XLSX exports
 
 ## Vaisala-specific rules (do not "fix" these — they are intentional)
