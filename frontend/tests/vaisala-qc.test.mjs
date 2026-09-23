@@ -1,0 +1,55 @@
+import { after, before, test } from 'node:test'
+import assert from 'node:assert/strict'
+import { chromium } from 'playwright'
+import { createServer } from 'vite'
+
+let browser, server, baseURL
+before(async () => {
+  baseURL = process.env.QC_BASE_URL
+  if (!baseURL) {
+    server = await createServer({ server: { host: '127.0.0.1', port: 5190, strictPort: true } })
+    await server.listen()
+    baseURL = 'http://127.0.0.1:5190'
+  }
+  browser = await chromium.launch({ headless: true })
+})
+after(async () => { await browser?.close(); await server?.close() })
+
+for (const hasQC of [true, false]) test(hasQC ? 'QC renders whole percentages' : 'older surveys explain re-upload', async t => {
+  const context = await browser.newContext()
+  t.after(() => context.close())
+  await context.addInitScript(() => {
+    localStorage.setItem('ai_token', 'test')
+    localStorage.setItem('ai_user', JSON.stringify({ id: 1, role: 'admin', email: 'test@example.com' }))
+  })
+  const page = await context.newPage()
+  const survey = { id: 1, source_filename: 'qc.csv', section_count: 1, imported_at: '2026-09-23', network_key: 'stroud' }
+  const section = { id: 1, section_ref: 'A', length_m: 10, priority_score: 0, rag_band: 'Green',
+    qc_completeness_pct: hasQC ? 20 : null, qc_completeness_band: hasQC ? 'Low' : null,
+    qc_reliability_pct: hasQC ? 100 : null, qc_reliability_band: hasQC ? 'High' : null }
+  await page.route('**/*', route => {
+    const req = route.request(), path = new URL(req.url()).pathname
+    if (['xhr', 'fetch'].includes(req.resourceType()) && /^\/(assets|analysis)\//.test(path)) {
+      return route.fulfill({ json: path === '/assets/' ? { assets: [], total: 0 } : path === '/assets/map-data' ? { type: 'FeatureCollection', features: [] } : {} })
+    }
+    if (['xhr', 'fetch'].includes(req.resourceType()) && path.startsWith('/vaisala/')) {
+      const data = path.endsWith('/surveys') ? [survey] : path.endsWith('/stats') ? { ...survey, rag_counts: {}, total_length_km: 0.01 }
+        : path.endsWith('/all') ? [section] : { sections: [section], total: 1 }
+      return route.fulfill({ json: data })
+    }
+    if (new URL(req.url()).origin !== new URL(baseURL).origin) return route.abort()
+    return route.continue()
+  })
+  await page.goto(baseURL + '/')
+  await page.getByRole('link', { name: 'Vaisala DST' }).click()
+  await page.getByRole('button', { name: 'QC', exact: true }).click()
+  if (hasQC) {
+    await page.getByText('20% network avg.').waitFor()
+    await page.getByText('100% network avg.').waitFor()
+    assert.equal(await page.getByText('2000%').count(), 0)
+    await page.getByRole('cell', { name: '20%', exact: true }).waitFor()
+  } else {
+    await page.getByText(/Re-upload the original XLSX\/CSV/).waitFor()
+    assert.equal(await page.getByText(/separate Vaisala QC process/).count(), 0)
+  }
+})

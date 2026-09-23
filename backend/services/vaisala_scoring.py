@@ -18,6 +18,7 @@ from typing import Optional
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+from services.vaisala_qc import calculate_qc
 
 logger = logging.getLogger(__name__)
 
@@ -459,8 +460,7 @@ def _aggregate_intervals(df: pd.DataFrame, network_key: str, weights: dict[str, 
             "micro_pct":      round(micro_pct, 2),
             "alligator_pct":  round(alligator_pct, 2),
             "edge_pct":       round(edge_pct, 2),
-            "qc_completeness_pct": None, "qc_completeness_band": None,
-            "qc_reliability_pct":  None, "qc_reliability_band":  None,
+            **calculate_qc((float(row['_len']), row) for row in grp.to_dict('records')),
         })
 
     return sections, raw_intervals
@@ -507,6 +507,7 @@ def _dedup_by_latest_pass(df: pd.DataFrame, network_key: str) -> tuple[pd.DataFr
 import re as _re
 _LINK_COL_PATTERN = _re.compile(r"link|url|hyperlink|video", _re.IGNORECASE)
 _EXTRA_PASSTHROUGH_KEYS = [
+    "Coverage (total)", "Coverage (valid)", "Total coverage", "Valid coverage", "Filter",
     "Time UTC", "Time (UTC)", "TIME_UTC", "Date Time", "DateTime", "Timestamp",
     "Latitude", "Longitude", "Lat", "Long", "Lon", "LAT", "LON", "LONG",
     "Map Link", "Map link", "Google Street View", "Video Link", "Video URL",
@@ -583,6 +584,10 @@ def _attach_extras_json_column(df: pd.DataFrame, link_col_names: list[str]) -> p
     """Serialise per-row extras (link columns + known passthrough columns) as JSON string column."""
     lower = {c.lower(): c for c in df.columns}
     extras_cols: list[str] = [c for c in link_col_names if c in df.columns]
+    extras_cols += [c for c in df.columns if c not in extras_cols and any(
+        alias in _re.sub(r'[^a-z0-9]', '', c.lower())
+        for alias in ('coveragetotal', 'coveragevalid', 'totalcoverage', 'validcoverage')
+    )]
     for k in _EXTRA_PASSTHROUGH_KEYS:
         actual = lower.get(k.lower())
         if actual and actual not in extras_cols:

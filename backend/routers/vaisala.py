@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from database import get_db
+from services.vaisala_qc import calculate_qc
 from models.user import User
 from models.vaisala import (
     VaisalaDefectWeight,
@@ -148,10 +149,7 @@ def _interval_to_section_dict(iv, survey_id: int) -> dict:
         "asphalt_condition": iv.asphalt_condition,
         "asphalt_condition_class": iv.asphalt_condition_class,
         "pas2161_category": iv.pas2161_category,
-        "qc_completeness_pct": None,
-        "qc_completeness_band": None,
-        "qc_reliability_pct": None,
-        "qc_reliability_band": None,
+        **calculate_qc([(iv.length_m or 10.0, _interval_extras(iv))]),
         "extras": _interval_extras(iv),
     }
 
@@ -269,10 +267,7 @@ def _intervals_to_100m_sections(intervals: list, survey_id: int) -> list[dict]:
                 "asphalt_condition": asph,
                 "asphalt_condition_class": None,
                 "pas2161_category": pas,
-                "qc_completeness_pct": None,
-                "qc_completeness_band": None,
-                "qc_reliability_pct": None,
-                "qc_reliability_band": None,
+                **calculate_qc((iv.length_m or 10.0, _interval_extras(iv)) for iv in chunk),
                 # priority_dst.html keeps "Video Link (start of extent)" at 100m; capture first
                 # interval's link-ish extras only (aggregate view can't sensibly represent every
                 # sub-interval's link, so start-of-extent is the ref convention)

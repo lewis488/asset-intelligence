@@ -120,11 +120,11 @@ Vaisala scoring operates as a separate module. `VaisalaSection` is not linked to
 
 ---
 
-## QC Metrics Not Implemented
+## Historical Raw Uploads Lack QC Inputs
 
 **Severity: Low.**
 
-`qc_completeness_pct`, `qc_completeness_band`, `qc_reliability_pct`, `qc_reliability_band` fields exist in `VaisalaSection` schema and are referenced in `SHP_FIELD_MAP`. In `_aggregate_intervals()` (line 461–463) they are set to `None` for all records produced from raw XLSX/CSV. Only populated when importing from a pre-scored SHP export. No calculation logic exists.
+Raw XLSX/CSV uploads now calculate completeness/reliability at section, 100m and 10m scales, retaining coverage inputs in interval extras. Earlier uploads did not retain coverage fields, so their QC cannot be reconstructed from stored scores: re-upload the source file. QC API/storage uses whole percentages, matching reference SHP exports. See analytical-models.md for formulas and missing-data behavior.
 
 ---
 

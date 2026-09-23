@@ -1026,7 +1026,7 @@ function CorrelationTab({ surveyId, view }) {
 }
 
 // ─── QC tab ───────────────────────────────────────────────────────────────
-const QC_BANDS = ['High', 'Medium', 'Low']
+const QC_BANDS = ['High', 'Medium', 'Low', 'Unknown']
 const BAND_COLOUR = { High: '#3a7d44', Medium: '#d9a51c', Low: '#c0432f', Unknown: '#888' }
 
 function QCTab({ surveyId, view }) {
@@ -1056,13 +1056,12 @@ function QCTab({ surveyId, view }) {
         <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.7 }}>
           <p>QC metrics are not available for this survey.</p>
           <p style={{ marginTop: 8 }}>
-            Survey completeness and reading reliability fields are produced by a separate Vaisala QC process
-            and are not present in the raw interval-level XLSX/CSV export. They are populated when uploading
-            a pre-scored SHP export from <code>priority_dst.html</code>, which includes the QC output alongside the scored sections.
+            QC is calculated from the raw file’s Coverage (total) and Coverage (valid) fields.
+            These fields may be missing, invalid, or were not retained when this survey was uploaded using an older version.
           </p>
           <p style={{ marginTop: 8 }}>
-            To view QC data: re-run the scoring in <code>priority_dst.html</code>, export the SHP, and upload
-            the resulting ZIP using the <em>Scored SHP export</em> option.
+            Re-upload the original XLSX/CSV containing those coverage fields to calculate QC.
+            Pre-scored SHP exports containing QC values are also supported.
           </p>
         </div>
       </div>
@@ -1101,7 +1100,7 @@ function QCTab({ surveyId, view }) {
       <div className="card" style={{ flex: '1 1 300px' }}>
         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>{label}</div>
         {avg != null && (
-          <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 12 }}>{(avg * 100).toFixed(0)}% <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)' }}>network avg.</span></div>
+          <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 12 }}>{avg.toFixed(0)}% <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)' }}>network avg.</span></div>
         )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {QC_BANDS.map(band => {
@@ -1144,7 +1143,7 @@ function QCTab({ surveyId, view }) {
                   <td style={{ padding: '8px 10px' }}>{s.road_name || '—'}</td>
                   <td style={{ padding: '8px 10px', textAlign: 'right' }}>{s.length_m?.toFixed(0)}</td>
                   <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: '#c0432f' }}>
-                    {s[pctField] != null ? (s[pctField] * 100).toFixed(0) + '%' : '—'}
+                    {s[pctField] != null ? s[pctField].toFixed(0) + '%' : '—'}
                   </td>
                   <td style={{ padding: '8px 10px', textAlign: 'right' }}>{s.priority_score?.toFixed(2) ?? '—'}</td>
                   <td style={{ padding: '8px 10px' }}>

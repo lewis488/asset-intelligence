@@ -216,7 +216,7 @@ else → Monitor / Patching
 Ranks are scale-scoped: 10m, 100m, and section scales produce non-comparable ranks.
 
 ### QC Metrics
-`qc_completeness_pct` and `qc_reliability_pct` fields exist in schema but are currently NULL on all records (set to None in `_aggregate_intervals()` lines 461–463). Not implemented.
+Raw uploads calculate QC from `Coverage (total)` and `Coverage (valid)` using the reference tool's independent length-weighted averages. Completeness is average total coverage; reliability is average valid coverage divided by completeness, capped at 100%. Zero total coverage leaves reliability unknown. If total coverage is missing, valid coverage alone is the reference fallback. Bands are High ≥85%, Medium ≥50%, otherwise Low; missing values stay unknown. Coverage fractions, whole percentages above 1, and explicit percent strings are accepted (bare 1 means full coverage). API/database QC values use whole percentages. Original coverage fields and filter reasons are retained in interval extras for 10m/100m recalculation after deduplication. Urban views retain section-scale behavior. Earlier raw uploads did not retain these fields and require re-uploading the source file; SHP imports retain their precomputed whole-percent QC values.
 
 ---
 
