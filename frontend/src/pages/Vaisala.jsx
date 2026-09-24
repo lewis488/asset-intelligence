@@ -4,6 +4,7 @@ import api, { vaisalaApi } from '../api/client'
 import VaisalaSectionDetailPanel from '../components/VaisalaSectionDetailPanel'
 import VaisalaTreatmentAssessment from '../components/VaisalaTreatmentAssessment'
 import VaisalaProgramme from '../components/VaisalaProgramme'
+import VaisalaActionDiagnostics from '../components/VaisalaActionDiagnostics'
 import { ACTIONS } from '../components/VaisalaProgrammeDetail'
 
 const RAG_COLOUR    = { Red: '#C0453A', Amber: '#D89A3D', Green: '#4A8B6F' }
@@ -1244,10 +1245,11 @@ function NetworkGeometryUploadPanel({ current, onUploaded }) {
 }
 
 const MAP_TREATMENT_COLOURS = {
-  'Investigate': '#b23a28',
-  'Inspect': '#d9862a',
-  'Appraise maintenance options': '#c9a227',
-  'Monitor': '#5c8a99',
+  'Engineer assessment': '#b23a28',
+  'Validate evidence / further survey': '#d9862a',
+  'Treatment appraisal': '#c9a227',
+  'Monitor observed deterioration': '#5c8a99',
+  'No intervention indicated by this survey': '#397650',
 }
 
 function _lerp(a, b, t) {
@@ -1640,12 +1642,14 @@ export default function Vaisala() {
 
       {selectedId && stats && activeTab !== 'programme' && (
         <div className="card" style={{ marginBottom: 20, padding: '12px 18px' }}>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>Next actions</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>Model next actions · same assessment as Action programme</div>
           <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', fontSize: 13 }}>
-            {Object.entries(stats.action_counts || {}).map(([t, n]) => (
-              <span key={t}><strong>{n}</strong> <span style={{ color: 'var(--muted)' }}>{t}</span></span>
+            {Object.values(ACTIONS).map(label => (
+              <span key={label}><strong>{stats.action_counts?.[label] || 0}</strong> <span style={{ color: 'var(--muted)' }}>{label}</span></span>
             ))}
           </div>
+          <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 0 }}>These are current model recommendations. Action programme also shows recorded client decisions in saved programmes.</p>
+          <VaisalaActionDiagnostics diagnostics={stats.action_diagnostics} />
         </div>
       )}
 

@@ -370,7 +370,7 @@ def _build_raw_view_rows(db: Session, survey_id: int, merge_scale: str, split: s
     return urban_section + rural_scaled + unknown_scaled
 
 
-def _build_view_rows(db: Session, survey_id: int, merge_scale: str, split: str, *, include_unknown: bool = False, assess: bool = True) -> list[dict]:
+def _build_view_rows(db: Session, survey_id: int, merge_scale: str, split: str, *, include_unknown: bool = True, assess: bool = True) -> list[dict]:
     rows = _build_raw_view_rows(db, survey_id, merge_scale, split, include_unknown=include_unknown)
     if include_unknown:
         # Incomplete imports may retain intervals without their section summary.
@@ -392,13 +392,22 @@ def _build_view_rows(db: Session, survey_id: int, merge_scale: str, split: str, 
                 row['from_m'] = row['to_m'] = None
             rows.extend(recovered)
     section_ids = {}
+    if assess:
+        from services.vaisala_programme import programme_item
+        from routers.vaisala_programme import _policy
+        survey = db.get(VaisalaSurvey, survey_id)
+        policy = _policy(db, survey.authority_id)
     if any(row.get('assessment_scope') in ('10m', '100m') for row in rows):
         section_ids = {s.section_ref: s.id for s in db.query(VaisalaSection).filter_by(survey_id=survey_id).all()}
     for row in rows:
         row['assessment_scope'] = row.get('assessment_scope', 'section')
         row['narrative_section_id'] = None if row.get('section_summary_recovered') else (row['id'] if row['assessment_scope'] == 'section' else section_ids.get(row['section_ref']))
         if assess:
-            row.update(assessment_fields(row))
+            item = programme_item(row, survey_id=survey_id, policy=policy)
+            row.update(assessment_fields(row, assessment=item['treatment_assessment']))
+            row.update(programme_action=item['recommended_action'],
+                       programme_item_key=item['item_key'], reason_codes=item['reason_codes'],
+                       evidence_flags=item['evidence_flags'], action_policy_version=item['policy_version'])
     if assess:
         add_priority_percentiles(rows)
     return rows
@@ -642,13 +651,14 @@ def survey_stats(
     rag_counts: dict = {"Red": 0, "Amber": 0, "Green": 0}
     rag_length: dict = {"Red": 0.0, "Amber": 0.0, "Green": 0.0}
     treatment_counts: dict = {}
-    action_counts: dict = {}
+    from services.vaisala_programme import ACTIONS, action_diagnostics
+    action_counts: dict = {label: 0 for label in ACTIONS.values()}
 
     for r in rows:
         b = r.get("rag_band") or "Green"
         rag_counts[b] = rag_counts.get(b, 0) + 1
         rag_length[b] = rag_length.get(b, 0.0) + (r.get("length_m") or 0) / 1000
-        action = r.get("recommended_action") or "Inspect"
+        action = r["recommended_action"]
         action_counts[action] = action_counts.get(action, 0) + 1
         for candidate in r.get('treatment_assessment', {}).get('candidates', []):
             name = candidate['name']
@@ -673,6 +683,7 @@ def survey_stats(
         has_weight_drift=survey.has_weight_drift,
         top_treatments=treatment_counts,
         action_counts=action_counts,
+        action_diagnostics=action_diagnostics(rows),
         has_urban_rural=has_urban_rural,
     )
 
@@ -734,10 +745,11 @@ def all_sections(
 _LINK_HDR_PATTERN = __import__("re").compile(r"link|url|hyperlink|video", __import__("re").IGNORECASE)
 RAG_FILL = {"Red": "FFC0432F", "Amber": "FFD9A51C", "Green": "FF3A7D44"}
 ACTION_FILL = {
-    "Investigate": "FFC0432F",
-    "Inspect": "FFD9862A",
-    "Appraise maintenance options": "FFD9A51C",
-    "Monitor": "FF4C6B6F",
+    "Engineer assessment": "FFC0432F",
+    "Validate evidence / further survey": "FFD9862A",
+    "Treatment appraisal": "FFD9A51C",
+    "Monitor observed deterioration": "FF4C6B6F",
+    "No intervention indicated by this survey": "FF397650",
 }
 
 

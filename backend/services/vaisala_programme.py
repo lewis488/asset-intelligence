@@ -131,6 +131,31 @@ def _coverage(items: list[dict]) -> tuple[float, int]:
     return round(total, 3), unresolved
 
 
+def action_diagnostics(items: list[dict]) -> dict:
+    """Explain model queue distribution without inventing new intervention thresholds."""
+    counts = {reason: 0 for reason in BRIEFS}
+    extents = []
+    structural_total = incomplete = limited_qc = 0
+    for item in items:
+        for reason in item.get('reason_codes', []):
+            counts[reason] = counts.get(reason, 0) + 1
+        flags = item.get('evidence_flags') or item.get('treatment_assessment', {}).get('evidence_flags', {})
+        incomplete += not flags.get('complete_readings', False)
+        limited_qc += not flags.get('qc_adequate', False)
+        if flags.get('structural_observed'):
+            structural_total += 1
+            positive = [v for key in ('structural_pct', 'alligator_pct')
+                        if (v := _number(item.get(key), 100)) is not None and v > 0]
+            if positive:
+                extents.append(max(positive))
+    return dict(total_items=len(items), reason_counts=counts,
+                incomplete_readings_count=incomplete, limited_qc_count=limited_qc,
+                structural_group_extent=dict(known_count=len(extents),
+                    unknown_count=structural_total-len(extents),
+                    min_pct=min(extents) if extents else None,
+                    max_pct=max(extents) if extents else None))
+
+
 def build_programme(rows: list[dict], *, survey_id: int, policy: dict) -> dict:
     policy = validate_policy(policy)
     items = [programme_item(row, survey_id=survey_id, policy=policy) for row in rows]
@@ -182,4 +207,5 @@ def build_programme(rows: list[dict], *, survey_id: int, policy: dict) -> dict:
                 policy=policy, cohorts=cohorts, items=items,
                 summary=dict(total_items=len(items), known_length_m=length, unresolved_extents=unresolved,
                              action_counts=action_counts, action_lengths_m=action_lengths,
+                             action_diagnostics=action_diagnostics(items),
                              coverage_note='Assessed coverage, not treatment quantity. Queue lengths may overlap; overall coverage is calculated independently.'))

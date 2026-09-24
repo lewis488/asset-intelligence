@@ -168,7 +168,7 @@ export default function VaisalaSectionDetailPanel({ section, surveyMeta, onClose
   const [narrativeError, setNarrativeError] = useState('')
   const [expandedTiers, setExpandedTiers] = useState({})
   const narrativeId = section?.narrative_section_id
-    ?? (!section?.assessment_scope || section?.assessment_scope === 'section' ? section?.id : null)
+    ?? ((!section?.assessment_scope || section?.assessment_scope === 'section') && section?.id > 0 ? section?.id : null)
 
   useEffect(() => {
     if (!section) return

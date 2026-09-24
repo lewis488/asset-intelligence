@@ -2,10 +2,11 @@
 
 Model version: `vaisala-candidates-v1` (23 September 2026).
 
-The [action programme](vaisala-action-programme.md) now supplies the client workflow,
+The [action programme](vaisala-action-programme.md) supplies the client workflow,
 with separate evidence-validation and engineering queues, immutable saved assessments
-and recorded client decisions. The rules below describe the compatibility screening
-view; programme zero-observation outcomes are labelled No intervention indicated by
+and recorded client decisions. All current client views use its five action categories
+and active authority policy. The rules below describe the internal candidate screening
+service; client zero-observation outcomes are labelled No intervention indicated by
 this survey, and monitoring requires a client review decision.
 
 ## Scope

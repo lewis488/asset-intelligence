@@ -29,6 +29,14 @@ def test_programme_retains_unknown_urban_classification_and_missing_scores(api):
     assert all(r['priority_score'] is None and r['queue_rank'] is None for r in unknown)
     urban = [r for r in payload['items'] if r['section_ref'] == 'U']
     assert len(urban) == 1 and urban[0]['assessment_scope'] == 'section'
+    from services.vaisala_programme import ACTIONS
+    for scale in ('10m', '100m'):
+        scoped = client.get(f'/vaisala/surveys/{survey_id}/programme?merge_scale={scale}', headers=headers['manager']).json()
+        listed = client.get(f'/vaisala/surveys/{survey_id}/sections/all?merge_scale={scale}', headers=headers['manager']).json()
+        stats = client.get(f'/vaisala/surveys/{survey_id}/stats?merge_scale={scale}', headers=headers['manager']).json()
+        assert {r['programme_item_key']: r['recommended_action'] for r in listed} == {
+            r['item_key']: ACTIONS[r['recommended_action']] for r in scoped['items']}
+        assert stats['action_counts'] == {ACTIONS[k]: v for k, v in scoped['summary']['action_counts'].items()}
 
 
 def test_section_ai_uses_programme_zero_action_and_explicit_scope(api, ai_requests):
@@ -66,6 +74,8 @@ def test_interval_only_survey_recovers_section_coverage_and_urban_scope(api):
     assert default.status_code == 200, default.text
     assert default.json()['summary']['total_items'] == 2
     assert default.json()['summary']['known_length_m'] == 40
+    listed = client.get(f'/vaisala/surveys/{survey_id}/sections/all', headers=headers['manager']).json()
+    assert {r['programme_item_key'] for r in listed} == {r['item_key'] for r in default.json()['items']}
     assert all(item['parent_section_id'] is None for item in default.json()['items'])
     scaled = client.get(f'/vaisala/surveys/{survey_id}/programme?merge_scale=10m', headers=headers['manager']).json()
     assert len(scaled['items']) == 3

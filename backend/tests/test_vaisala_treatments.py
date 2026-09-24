@@ -118,17 +118,17 @@ def test_existing_survey_candidates_match_api_modes_exports_and_ai(api, ai_reque
     ranked = client.get(base + '/sections?treatment_mode=percentile', headers=headers['manager']).json()['sections'][0]
     assert normal['treatment_assessment'] == ranked['treatment_assessment']
     assert normal['treatment'] != 'Resurfacing'
-    assert normal['recommended_action'] == 'Investigate'
+    assert normal['recommended_action'] == 'Engineer assessment'
     assert normal['rag_band'] == 'Red' and normal['priority_score'] == 4.5
     export = client.get(base + '/export?treatment_mode=percentile', headers=headers['manager'])
     frame = pd.read_csv(io.StringIO(export.text))
-    assert frame['Next action'].iloc[0] == 'Investigate'
+    assert frame['Next action'].iloc[0] == 'Engineer assessment'
     assert 'Resurfacing' not in frame['Conditional candidates'].iloc[0]
     assert 'structural' in frame['Evidence gaps'].iloc[0].lower()
     assert 'Structural Defect Proportion (%)' in frame.columns
     workbook = client.get(base + '/export?format=xlsx', headers=headers['manager'])
     assert workbook.status_code == 200
-    assert pd.read_excel(io.BytesIO(workbook.content))['Next action'].iloc[0] == 'Investigate'
+    assert pd.read_excel(io.BytesIO(workbook.content))['Next action'].iloc[0] == 'Engineer assessment'
     response = client.post(f'/analysis/vaisala/{section_id}', headers=headers['manager'])
     assert response.status_code == 200
     context = ai_requests[-1]['messages'][0]['content']
@@ -188,7 +188,7 @@ def test_scaled_views_keep_urban_scope_missing_evidence_and_parent_narrative(api
         for r in rural:
             assert r['assessment_scope'] == scale
             assert r['narrative_section_id'] == parent_id
-            assert r['recommended_action'] == ('Investigate' if scale == '100m' or r['structural_pct'] else 'Inspect')
+            assert r['recommended_action'] == ('Engineer assessment' if scale == '100m' or r['structural_pct'] else 'Validate evidence / further survey')
             assert r['edge_pct'] is None
             assert 'Edge deterioration' in ' '.join(r['treatment_assessment']['evidence_gaps'])
             assert r['priority_score'] == 5

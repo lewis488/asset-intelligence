@@ -123,7 +123,7 @@ def assess_treatments(row: dict, *, policy: dict | None = None) -> dict:
         reason = 'No positive defect-group measures are recorded; continue routine monitoring and safety inspections. This does not establish sound structure.'
 
     if local > 0 and local >= local_trigger:
-        candidate('Localised patch repair', f'Localised defect group is {local:.1f}%, meeting the legacy screening trigger.',
+        candidate('Localised patch repair', f'Localised defect group is {local:.1f}%, meeting the screening trigger ({local_trigger:g}%).',
                   ['Confirm defect locations, repair depth and whether defects are genuinely localised.',
                    'Check repair recurrence, drainage and utility history.'],
                   ['Repeated patching may not address the cause; do not assume it is the optimum long-term option.'])
@@ -136,7 +136,7 @@ def assess_treatments(row: dict, *, policy: dict | None = None) -> dict:
 
     if surface > 0 and surface >= surface_trigger and not structural:
         for name in ('Surface dressing', 'Micro-surfacing', 'Thin surfacing'):
-            candidate(name, 'Surface-related defect extent meets a legacy screening trigger; compare alternatives after inspection.',
+            candidate(name, f'Surface-related defect extent meets the screening trigger ({surface_trigger:g}%); compare alternatives after inspection.',
                       ['Confirm suitable pavement support, drainage, surface condition and defect mechanism.',
                        'Review texture/friction evidence where relevant, site constraints and authority treatment policy.'],
                       ['Missing structural observations do not establish sound pavement.',
@@ -179,8 +179,8 @@ def assess_treatments(row: dict, *, policy: dict | None = None) -> dict:
                 surface_only_caution=('Structural-associated observations make surface-only treatment suitability unconfirmed.' if structural else None))
 
 
-def assessment_fields(row: dict) -> dict:
-    assessment = assess_treatments(row)
+def assessment_fields(row: dict, *, assessment: dict | None = None) -> dict:
+    assessment = assessment if assessment is not None else assess_treatments(row)
     summary = '; '.join(c['name'] for c in assessment['candidates']) or 'No candidate selected'
     return dict(treatment_assessment=assessment, recommended_action=assessment['action'],
                 treatment=summary, candidate_summary=summary,

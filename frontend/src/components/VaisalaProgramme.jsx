@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import api from '../api/client'
 import { useAuth } from '../context/AuthContext'
+import VaisalaActionDiagnostics from './VaisalaActionDiagnostics'
 import VaisalaProgrammeDetail, { ACTIONS, STATUSES, controlStyle, displayValue, errorText } from './VaisalaProgrammeDetail'
 
 const queueNotes = {
@@ -119,6 +120,7 @@ export default function VaisalaProgramme({ surveyId, survey, view }) {
           <span><strong>{summary.unresolved_extents ?? 0}</strong> unresolved extents</span>
         </div>
         <p style={{ fontSize: 12, color: 'var(--muted)' }}>Totals describe the whole programme. Queue coverage can overlap; overall unique coverage is calculated independently. Prerequisites do not add locations. Missing chainage is unresolved, not a nominal 10m length.</p>
+        <VaisalaActionDiagnostics diagnostics={summary.action_diagnostics} />
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 16 }} aria-label="Action queues">
           <button style={{ ...controlStyle, borderWidth: filters.action === '' ? 2 : 1 }} aria-pressed={filters.action === ''} onClick={() => changeFilter('action', '')}>All actions ({total})</button>
           {Object.entries(ACTIONS).map(([code, label]) => <button key={code} aria-pressed={filters.action === code} onClick={() => changeFilter('action', code)} style={{ ...controlStyle, textAlign: 'left', maxWidth: 250, borderWidth: filters.action === code ? 2 : 1 }}>

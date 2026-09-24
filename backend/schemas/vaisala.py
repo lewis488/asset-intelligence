@@ -17,6 +17,10 @@ class VaisalaSectionOut(BaseModel):
     rag_band: Optional[str]
     treatment: Optional[str]
     recommended_action: Optional[str] = None
+    programme_action: Optional[str] = None
+    programme_item_key: Optional[str] = None
+    reason_codes: list[str] = []
+    action_policy_version: Optional[str] = None
     treatment_assessment: Optional[dict] = None
     priority_percentile: Optional[float] = None
     assessment_scope: Optional[str] = None
@@ -88,6 +92,7 @@ class VaisalaStats(BaseModel):
     has_weight_drift: bool
     top_treatments: dict
     action_counts: dict = {}
+    action_diagnostics: dict = {}
     has_urban_rural: bool = False
 
 

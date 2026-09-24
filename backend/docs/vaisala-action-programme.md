@@ -12,7 +12,9 @@ Complete valid zero observations with adequate QC, zero score and Green RAG prod
 
 **Monitor observed deterioration** requires a recorded client decision in this release. No new automatic monitoring threshold was invented. A client action can change the working queue, but the model recommendation, evidence and original model rank remain immutable and visible.
 
-Legacy condition lists retain their screening labels for compatibility. The Action programme is the workflow view; its labels distinguish evidence validation from engineering assessment and observed absence from monitoring. AI whole-section context uses the same new action logic and labels its scope explicitly.
+Condition lists, details, statistics, maps and exports now use the same programme assessment and active authority policy as the Action programme preview. All five model action categories remain visible even when their count is zero. Source condition scores and RAG arithmetic are unchanged. Current model recommendations are labelled separately from client decisions in saved programmes; frozen historical snapshots are not rewritten.
+
+The **Why these actions?** breakdown shows primary routing reason counts, complete-reading/QC limitations and the range of available positive structural/alligator group measures. It explicitly explains that any positive structural-associated observation triggers assessment of the selected extent, not a diagnosis or repair of its entire length. Group measures can overlap; they are not unique damaged length. This diagnostic does not introduce new thresholds or force queues to be populated. Stored snapshots predating the breakdown may not contain it.
 
 ## Policy and invariants
 
@@ -20,7 +22,7 @@ The authority default policy is `vaisala-programme-default-v1`: localised thresh
 
 Scores, condition weights, fixed Red >=4.0 / Amber >=1.8, ingestion, deduplication and stored source data are unchanged. Interval programme rows with absent source scores are explicitly unranked and have no inferred RAG; legacy display arithmetic is untouched.
 
-Urban extents remain section-scoped. Unknown U/R rows remain in combined programme views. For incomplete imports retaining intervals without parent section summaries, programme views derive a temporary whole-section assessment where needed; no source row is written or fabricated parent narrative ID used.
+Urban extents remain section-scoped. Unknown U/R rows remain in combined views. For incomplete imports retaining intervals without parent section summaries, views derive a temporary whole-section assessment where needed; no source row is written or fabricated parent narrative ID used.
 
 ## Ranking and coverage
 

@@ -25,8 +25,8 @@ for (const hasQC of [true, false]) test(hasQC ? 'QC renders whole percentages' :
   const page = await context.newPage()
   const survey = { id: 1, source_filename: 'qc.csv', section_count: 1, imported_at: '2026-09-23', network_key: 'stroud' }
   const section = { id: 1, section_ref: 'A', length_m: 10, priority_score: 0, rag_band: 'Green',
-    treatment: 'Surface dressing', recommended_action: 'Inspect', assessment_scope: 'section', priority_percentile: 50,
-    treatment_assessment: { action: 'Inspect', reason: 'Validate survey coverage before selection.',
+    treatment: 'Surface dressing', recommended_action: 'Validate evidence / further survey', assessment_scope: 'section', priority_percentile: 50,
+    treatment_assessment: { action: 'Validate evidence / further survey', reason: 'Validate survey coverage before selection.',
       evidence: ['Dressing-related defects: 5.0% (group measure)'],
       candidates: [{ name: 'Surface dressing', rationale: 'Surface-related defects support consideration.',
         prerequisites: ['Confirm pavement support and drainage.'], cautions: ['Visual evidence alone does not establish structural capacity.'] }],
@@ -41,7 +41,9 @@ for (const hasQC of [true, false]) test(hasQC ? 'QC renders whole percentages' :
       return route.fulfill({ json: path === '/assets/' ? { assets: [], total: 0 } : path === '/assets/map-data' ? { type: 'FeatureCollection', features: [] } : {} })
     }
     if (['xhr', 'fetch'].includes(req.resourceType()) && path.startsWith('/vaisala/')) {
-      const data = path.endsWith('/surveys') ? [survey] : path.endsWith('/stats') ? { ...survey, rag_counts: {}, total_length_km: 0.01 }
+      const data = path.endsWith('/surveys') ? [survey] : path.endsWith('/stats') ? { ...survey, rag_counts: {}, total_length_km: 0.01,
+        action_counts: { 'Validate evidence / further survey': 1 },
+        action_diagnostics: { total_items: 1, reason_counts: { evidence_limited: 1 }, incomplete_readings_count: 1, limited_qc_count: 1, structural_group_extent: {} } }
         : path.endsWith('/all') ? [section] : { sections: [section], total: 1 }
       return route.fulfill({ json: data })
     }
@@ -50,12 +52,22 @@ for (const hasQC of [true, false]) test(hasQC ? 'QC renders whole percentages' :
   })
   await page.goto(baseURL + '/')
   await page.getByRole('link', { name: 'Vaisala DST' }).click()
+  await page.getByText('Model next actions · same assessment as Action programme', { exact: true }).waitFor()
+  for (const label of ['Engineer assessment', 'Treatment appraisal', 'Monitor observed deterioration', 'No intervention indicated by this survey']) {
+    const displayed = page.getByText(label, { exact: true })
+    await displayed.waitFor()
+    assert.match(await displayed.locator('..').innerText(), /^0\s/)
+  }
+  await page.getByText('Why these actions?', { exact: true }).click()
+  await page.getByText(/Any positive structural-associated observation currently triggers engineer assessment/).waitFor()
+  assert.equal(await page.getByText('Investigate', { exact: true }).count(), 0)
+  assert.equal(await page.getByText('Inspect', { exact: true }).count(), 0)
   if (hasQC) {
     await page.getByRole('cell', { name: 'A', exact: true }).click()
     await page.getByText(/^20\.0%/).waitFor()
     await page.getByText(/^100\.0%/).waitFor()
     await page.getByText('Action and treatment candidates', { exact: true }).waitFor()
-    await page.getByText('Next action: Inspect', { exact: true }).waitFor()
+    await page.getByText('Next action: Validate evidence / further survey', { exact: true }).waitFor()
     await page.locator('summary').filter({ hasText: /^Surface dressing$/ }).click()
     await page.getByText('Confirm pavement support and drainage.', { exact: true }).waitFor()
     await page.getByText('Evidence still needed', { exact: true }).click()
@@ -67,7 +79,7 @@ for (const hasQC of [true, false]) test(hasQC ? 'QC renders whole percentages' :
     await page.getByRole('button', { name: 'Relative priority', exact: true }).click()
     await page.getByRole('columnheader', { name: 'Relative percentile', exact: true }).waitFor()
     await page.getByRole('cell', { name: 'A', exact: true }).click()
-    await page.getByText('Next action: Inspect', { exact: true }).waitFor()
+    await page.getByText('Next action: Validate evidence / further survey', { exact: true }).waitFor()
     await page.locator('summary').filter({ hasText: /^Surface dressing$/ }).waitFor()
     await page.getByText(/Relative rank does not determine treatment suitability/).waitFor()
     await page.getByRole('button', { name: 'Close', exact: true }).click()
