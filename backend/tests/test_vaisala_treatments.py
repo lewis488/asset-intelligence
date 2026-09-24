@@ -145,12 +145,17 @@ def test_existing_survey_candidates_match_api_modes_exports_and_ai(api, ai_reque
     mapped = client.get(f'/vaisala/network-geometry/features?survey_id={survey_id}&treatment_mode=percentile', headers=headers['manager'])
     props = mapped.json()['features'][0]['properties']
     assert props['treatment_assessment'] == normal['treatment_assessment']
+    assert props['programme_items'][0]['recommended_action'] == 'engineer_assessment'
+    assert props['programme_items'][0]['priority_score'] == 4.5
     shp = client.get(base + '/export?format=shp', headers=headers['manager'])
     assert shp.status_code == 200, shp.text[:500] if shp.status_code != 200 else ''
     with zipfile.ZipFile(io.BytesIO(shp.content)) as archive:
         assessment = json.loads(archive.read('treatment_assessments.json'))[0]
         assert assessment['treatment_assessment'] == normal['treatment_assessment']
         assert 'README.txt' in archive.namelist()
+        programme = json.loads(archive.read('action_programme.json'))
+        assert programme['items'][0]['item_key'] == props['programme_items'][0]['item_key']
+        assert programme['summary']['total_items'] == 1
 
 
 def test_scaled_views_keep_urban_scope_missing_evidence_and_parent_narrative(api):

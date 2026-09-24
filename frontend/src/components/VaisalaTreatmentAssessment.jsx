@@ -1,4 +1,4 @@
-export default function VaisalaTreatmentAssessment({ assessment, scope, percentile }) {
+export default function VaisalaTreatmentAssessment({ assessment, scope, percentile, showAction = true }) {
   if (!assessment) return <p style={{ fontSize: 12, color: 'var(--muted)' }}>Treatment assessment unavailable. Refresh the survey view to load the current evidence assessment.</p>
   return (
     <div style={{ fontSize: 12, lineHeight: 1.6 }}>
@@ -6,8 +6,8 @@ export default function VaisalaTreatmentAssessment({ assessment, scope, percenti
         Evidence scope: {scope || 'section'}
         {percentile != null && <> · Relative priority percentile: {Number(percentile).toFixed(1)} (higher = worse within this scale)</>}
       </div>
-      <div style={{ fontSize: 14, fontWeight: 700 }}>Next action: {assessment.action}</div>
-      <p style={{ margin: '6px 0 12px' }}>{assessment.reason}</p>
+      {showAction && <><div style={{ fontSize: 14, fontWeight: 700 }}>Next action: {assessment.action}</div>
+      <p style={{ margin: '6px 0 12px' }}>{assessment.reason}</p></>}
       {assessment.evidence?.length > 0 && <>
         <strong>Observed evidence</strong>
         <ul style={{ margin: '4px 0 12px', paddingLeft: 18 }}>{assessment.evidence.map(item => <li key={item}>{item}</li>)}</ul>

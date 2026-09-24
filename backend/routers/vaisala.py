@@ -126,6 +126,11 @@ def _interval_to_section_dict(iv, survey_id: int) -> dict:
         "section_ref": iv.section_ref,
         "chunk_label": chunk_label,
         "assessment_scope": "10m",
+        "source_interval_ids": [iv.id],
+        "source_extents": [{"from_m": iv.from_m, "to_m": iv.to_m}],
+        "from_m": iv.from_m,
+        "to_m": iv.to_m,
+        "source_score_valid": iv.interval_score is not None,
         "defect_evidence_complete": getattr(iv, 'defect_evidence_complete', None),
         "road_name": iv.road_name,
         "net_reference": iv.net_reference,
@@ -197,7 +202,7 @@ def _chunk_respecting_subgroups(ivs: list, target_len: float) -> list[list]:
     return all_chunks
 
 
-def _intervals_to_100m_sections(intervals: list, survey_id: int) -> list[dict]:
+def _intervals_to_100m_sections(intervals: list, survey_id: int, *, whole_section: bool = False) -> list[dict]:
     """Group intervals into ~100m windows per section and return section-level dicts."""
     from collections import defaultdict
 
@@ -209,7 +214,7 @@ def _intervals_to_100m_sections(intervals: list, survey_id: int) -> list[dict]:
     chunk_counter = 0
 
     for section_ref, ivs in by_section.items():
-        chunks = _chunk_respecting_subgroups(ivs, 100.0)
+        chunks = [sorted(ivs, key=lambda iv: (iv.from_m is None, iv.from_m or 0, iv.id))] if whole_section else _chunk_respecting_subgroups(ivs, 100.0)
         n_chunks = len(chunks)
 
         for i, chunk in enumerate(chunks):
@@ -245,7 +250,12 @@ def _intervals_to_100m_sections(intervals: list, survey_id: int) -> list[dict]:
                 "survey_id": survey_id,
                 "section_ref": section_ref,
                 "chunk_label": chunk_label,
-                "assessment_scope": "100m",
+                "assessment_scope": "section" if whole_section else "100m",
+                "source_interval_ids": sorted(iv.id for iv in chunk),
+                "source_extents": [{"from_m": iv.from_m, "to_m": iv.to_m, "net_reference": iv.net_reference} for iv in chunk],
+                "from_m": from_p,
+                "to_m": to_p,
+                "source_score_valid": all(iv.interval_score is not None for iv in chunk),
                 "defect_evidence_complete": all(getattr(iv, 'defect_evidence_complete', None) is True for iv in chunk),
                 "observed_defect_groups": [field + '_pct' for field in ('structural', 'alligator', 'localised', 'dressing', 'micro', 'edge')
                                            if any((getattr(iv, field, None) or 0) > 0 for iv in chunk)],
@@ -327,7 +337,7 @@ def _db_sections_as_dicts(db: Session, survey_id: int, urban_rural: Optional[str
     return [_to_dict_row(s) for s in q.all()]
 
 
-def _build_raw_view_rows(db: Session, survey_id: int, merge_scale: str, split: str) -> list[dict]:
+def _build_raw_view_rows(db: Session, survey_id: int, merge_scale: str, split: str, *, include_unknown: bool = False) -> list[dict]:
     """Return dict rows for the requested view.
 
     Urban rows always use section scale (per priority_dst.html brief: 'urban roads always score
@@ -356,19 +366,41 @@ def _build_raw_view_rows(db: Session, survey_id: int, merge_scale: str, split: s
     if not urban_section:
         # network has no U/R indicator — just return scaled rows as-is
         return scaled
-    return urban_section + rural_scaled
+    unknown_scaled = [r for r in scaled if r.get('urban_rural') not in ('U', 'R')] if include_unknown else []
+    return urban_section + rural_scaled + unknown_scaled
 
 
-def _build_view_rows(db: Session, survey_id: int, merge_scale: str, split: str) -> list[dict]:
-    rows = _build_raw_view_rows(db, survey_id, merge_scale, split)
+def _build_view_rows(db: Session, survey_id: int, merge_scale: str, split: str, *, include_unknown: bool = False, assess: bool = True) -> list[dict]:
+    rows = _build_raw_view_rows(db, survey_id, merge_scale, split, include_unknown=include_unknown)
+    if include_unknown:
+        # Incomplete imports may retain intervals without their section summary.
+        # Programme coverage must not silently disappear at the default scale.
+        parents = db.query(VaisalaSection.section_ref).filter_by(survey_id=survey_id)
+        orphans = db.query(VaisalaInterval).filter(VaisalaInterval.survey_id == survey_id,
+                                                  ~VaisalaInterval.section_ref.in_(parents))
+        if split in ('urban', 'rural'):
+            orphans = orphans.filter(VaisalaInterval.urban_rural == ('U' if split == 'urban' else 'R'))
+        orphan_rows = orphans.all()
+        fallback = orphan_rows if merge_scale == 'section' or split == 'urban' else [iv for iv in orphan_rows if iv.urban_rural == 'U']
+        if fallback:
+            fallback_refs = {iv.section_ref for iv in fallback}
+            rows = [r for r in rows if r['section_ref'] not in fallback_refs]
+            recovered = _intervals_to_100m_sections(fallback, survey_id, whole_section=True)
+            for row in recovered:
+                row['section_summary_recovered'] = True
+                row['chunk_label'] = 'Section assessment derived from available intervals'
+                row['from_m'] = row['to_m'] = None
+            rows.extend(recovered)
     section_ids = {}
     if any(row.get('assessment_scope') in ('10m', '100m') for row in rows):
         section_ids = {s.section_ref: s.id for s in db.query(VaisalaSection).filter_by(survey_id=survey_id).all()}
     for row in rows:
         row['assessment_scope'] = row.get('assessment_scope', 'section')
-        row['narrative_section_id'] = row['id'] if row['assessment_scope'] == 'section' else section_ids.get(row['section_ref'])
-        row.update(assessment_fields(row))
-    add_priority_percentiles(rows)
+        row['narrative_section_id'] = None if row.get('section_summary_recovered') else (row['id'] if row['assessment_scope'] == 'section' else section_ids.get(row['section_ref']))
+        if assess:
+            row.update(assessment_fields(row))
+    if assess:
+        add_priority_percentiles(rows)
     return rows
 
 
@@ -883,12 +915,23 @@ def export_csv(
         )
 
     # ─── SHP export ───
+    from services.vaisala_programme import build_programme
+    from routers.vaisala_programme import _policy
+    programme = build_programme(
+        _build_view_rows(db, survey_id, effective_scale, split, include_unknown=True, assess=False),
+        survey_id=survey_id, policy=_policy(db, survey.authority_id))
+    programme_lookup = {(item['assessment_scope'], item['id']): item for item in programme['items']}
+    for row in rows:
+        item = programme_lookup.get((row.get('assessment_scope', 'section'), row['id']), {})
+        row['programme_action'] = item.get('recommended_action')
+        row['programme_item_key'] = item.get('item_key')
+        row['programme_queue_rank'] = item.get('queue_rank')
     # Requires an active network geometry layer for real road geometry. Row scores are joined
     # by section_ref → section_key. Rows without a matching feature are dropped (row count in
     # response header helps the frontend surface a "missed N rows" note).
     geom = (
         db.query(VaisalaNetworkGeometry)
-          .filter_by(authority_id=current_user.authority_id, is_active=True)
+          .filter_by(authority_id=survey.authority_id, is_active=True)
           .order_by(VaisalaNetworkGeometry.created_at.desc())
           .first()
     )
@@ -926,6 +969,9 @@ def export_csv(
         ("RAG",        "rag_band"),
         ("Treatment",  "treatment"),
         ("NextAction", "recommended_action"),
+        ("ProgAction", "programme_action"),
+        ("ProgKey",    "programme_item_key"),
+        ("QueueRank",  "programme_queue_rank"),
         ("RankPct",    "priority_percentile"),
         ("Scale",      "assessment_scope"),
         ("ModelVer",   "assessment_version"),
@@ -978,11 +1024,14 @@ def export_csv(
                 {key: r.get(key) for key in ('section_ref', 'chunk_label', 'assessment_scope',
                  'priority_percentile', 'treatment_assessment')} for r in rows
             ], ensure_ascii=False, indent=2))
+            zf.writestr('action_programme.json', json.dumps(programme, ensure_ascii=False))
             zf.writestr('README.txt', 'Treatment fields contain conditional candidates, not approved designs. '
                        'NextAction is the screening action. See treatment_assessments.json for full evidence, '
                        'prerequisites and cautions. RankPct is relative priority within Scale, not treatment suitability. '
                        'DBF text may be truncated; unmatched survey rows remain in the JSON sidecar. '
-                       'Scaled rows use full section geometry; Extent identifies the assessed interval, not clipped geometry.')
+                       'Scaled rows use full section geometry; Extent identifies the assessed interval, not clipped geometry. '
+                       'action_programme.json contains the complete current programme preview including unmatched records; '
+                       'ProgAction/ProgKey/QueueRank link to that preview, not a saved client decision.')
             for f in _os.listdir(tmp):
                 zf.write(_os.path.join(tmp, f), arcname=f)
         stream.seek(0)
@@ -1185,6 +1234,16 @@ def network_features_for_survey(
 
     row_by_key: dict = {}
     row_by_norm: dict = {}
+    from services.vaisala_programme import build_programme
+    from routers.vaisala_programme import _policy
+    programme = build_programme(
+        _build_view_rows(db, survey_id, effective_scale, split, include_unknown=True, assess=False),
+        survey_id=survey_id, policy=_policy(db, survey.authority_id))
+    programme_by_key, programme_by_norm = {}, {}
+    for item in programme['items']:
+        ref = str(item.get('section_ref') or '')
+        programme_by_key.setdefault(ref, []).append(item)
+        programme_by_norm.setdefault(_norm(ref), []).append(item)
     for r in rows:
         ref = str(r.get("section_ref") or "")
         if not ref:
@@ -1213,6 +1272,8 @@ def network_features_for_survey(
         props = {
             "section_key": key,
             "matched": r is not None,
+            "programme_items": programme_by_key.get(key) or programme_by_norm.get(_norm(key)) or [],
+            "programme_geometry_scope": "Section locator geometry; programme intervals are not clipped.",
         }
         if r is not None:
             for k in ("section_ref", "chunk_label", "road_name", "net_reference", "road_class",

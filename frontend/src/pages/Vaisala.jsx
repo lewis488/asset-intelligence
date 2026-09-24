@@ -3,6 +3,8 @@ import 'leaflet/dist/leaflet.css'
 import api, { vaisalaApi } from '../api/client'
 import VaisalaSectionDetailPanel from '../components/VaisalaSectionDetailPanel'
 import VaisalaTreatmentAssessment from '../components/VaisalaTreatmentAssessment'
+import VaisalaProgramme from '../components/VaisalaProgramme'
+import { ACTIONS } from '../components/VaisalaProgrammeDetail'
 
 const RAG_COLOUR    = { Red: '#C0453A', Amber: '#D89A3D', Green: '#4A8B6F' }
 const RAG_COLOUR_BG = { Red: '#FBEAE8', Amber: '#FCF3E3', Green: '#EBF3EE' }
@@ -12,6 +14,7 @@ const NETWORKS = [
   { value: 'wscc',   label: 'West Sussex (WSCC)' },
 ]
 const TABS = [
+  { key: 'programme', tag: 'Decisions', name: 'Action programme', desc: 'Review, assign and export next actions' },
   { key: 'list1', tag: 'Native', name: 'RSC', desc: 'Road Surface Condition' },
   { key: 'list2', tag: 'Native', name: 'Asphalt', desc: 'Asphalt Condition' },
   { key: 'list3', tag: 'Native', name: 'PAS', desc: 'PAS 2161' },
@@ -1479,19 +1482,32 @@ function SectionDetailPanel({ props, onClose }) {
         <button onClick={onClose} style={{ background: 'transparent', border: '1px solid var(--border)', borderRadius: 4, padding: '2px 8px', color: 'var(--muted)', cursor: 'pointer', fontSize: 12 }}>×</button>
       </div>
 
-      {!p.matched && (
+      {!p.matched && !p.programme_items?.length && (
         <div style={{ padding: 10, background: 'rgba(255,255,255,0.04)', borderRadius: 6, fontSize: 12, color: 'var(--muted)' }}>
           No scored data joined for this section — check the section_field on your network geometry upload.
         </div>
       )}
 
-      {p.matched && (
+      {(p.matched || !!p.programme_items?.length) && (
         <>
+          {!!p.programme_items?.length && <div style={{ marginBottom: 18 }}>
+            <strong>Programme items ({p.programme_items.length})</strong>
+            <p style={{ fontSize: 12, color: 'var(--muted)' }}>{p.programme_geometry_scope || 'Section locator geometry; interval extents are not clipped.'} These are current model recommendations; use Action programme for saved reviews.</p>
+            {p.programme_items.map(item => <details key={item.item_key} style={{ borderBottom: '1px solid var(--color-border)', padding: '8px 0' }}>
+              <summary style={{ cursor: 'pointer', fontSize: 12 }}>{item.chunk_label || 'Whole section'} · {item.assessment_scope} · {ACTIONS[item.recommended_action] || item.action_label}</summary>
+              <p style={{ fontSize: 12 }}>{item.brief}</p>
+              <p style={{ fontSize: 12 }}><strong>Question to resolve:</strong> {item.next_question}</p>
+              <p style={{ fontSize: 12 }}>{item.priority_explanation}</p>
+              <VaisalaTreatmentAssessment assessment={item.treatment_assessment} scope={item.assessment_scope} percentile={item.priority_percentile} showAction={false} />
+            </details>)}
+            {p.matched && <p style={{ fontSize: 11, color: 'var(--muted)' }}>The condition fields below describe the first matching extent, not every listed programme item.</p>}
+          </div>}
+          {p.matched && <>
           <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
             <span style={{ padding: '3px 10px', borderRadius: 99, background: ragColour + '22', color: ragColour, fontWeight: 700, fontSize: 12 }}>{p.rag_band || '—'}</span>
-            <span style={{ padding: '3px 10px', borderRadius: 99, background: 'var(--color-surface-raised, rgba(255,255,255,0.04))', fontSize: 12 }}>{p.recommended_action || '—'}</span>
+            {!p.programme_items?.length && <span style={{ padding: '3px 10px', borderRadius: 99, background: 'var(--color-surface-raised, rgba(255,255,255,0.04))', fontSize: 12 }}>{p.recommended_action || '—'}</span>}
           </div>
-          <VaisalaTreatmentAssessment assessment={p.treatment_assessment} scope={p.assessment_scope} percentile={p.priority_percentile} />
+          {!p.programme_items?.length && <VaisalaTreatmentAssessment assessment={p.treatment_assessment} scope={p.assessment_scope} percentile={p.priority_percentile} />}
 
           {row('Road', p.road_name || '—')}
           {row('Road class', p.road_class || '—')}
@@ -1519,6 +1535,7 @@ function SectionDetailPanel({ props, onClose }) {
           {row('Road surface cond.', fmt(p.road_surface_condition))}
           {row('Asphalt cond.', fmt(p.asphalt_condition))}
           {row('PAS 2161', p.pas2161_category || '—')}
+          </>}
         </>
       )}
     </div>
@@ -1578,9 +1595,10 @@ export default function Vaisala() {
 
   function renderTab() {
     if (!selectedId) return null
+    if (activeTab === 'programme') return <VaisalaProgramme key={`${selectedId}:${mergeScale}:${split}`} surveyId={selectedId} survey={selectedSurvey} view={view} />
     if (activeTab === 'correlation') return <CorrelationTab surveyId={selectedId} view={view} />
     if (activeTab === 'qc') return <QCTab surveyId={selectedId} view={view} />
-    if (activeTab === 'map') return <MapTab surveyId={selectedId} view={view} />
+    if (activeTab === 'map') return <MapTab key={`${selectedId}:${mergeScale}:${split}`} surveyId={selectedId} view={view} />
     return (
       <ListTab
         surveyId={selectedId}
@@ -1620,7 +1638,7 @@ export default function Vaisala() {
         : <RagStrip stats={stats} />
       }
 
-      {selectedId && stats && (
+      {selectedId && stats && activeTab !== 'programme' && (
         <div className="card" style={{ marginBottom: 20, padding: '12px 18px' }}>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>Next actions</div>
           <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', fontSize: 13 }}>

@@ -11,7 +11,7 @@ from models.user import Authority, User
 from routers.auth import get_current_user, require_contributor, resolve_authority_id
 from schemas.asset import AnalysisRunOut, QueryRequest, QueryResponse
 from services.llm import answer_query, generate_analysis, generate_vaisala_section_narrative
-from services.vaisala_treatments import assess_treatments, ASSESSMENT_INPUTS
+from services.vaisala_treatments import ASSESSMENT_INPUTS
 from config import settings
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
@@ -124,7 +124,7 @@ def _build_scored_assets(authority_id: Optional[int], db: Session) -> tuple[list
     }
 
     # ── Vaisala DST: append latest survey summary for AI context ──────────
-    # Runs after stats is built; uses SQL aggregates to avoid loading all rows.
+    # Vaisala programme totals use the complete section cohort, never the top-five sample.
     try:
         from sqlalchemy import func as _func, case as _case
         from models.vaisala import VaisalaSurvey as _VS, VaisalaSection as _VSec
@@ -134,6 +134,13 @@ def _build_scored_assets(authority_id: Optional[int], db: Session) -> tuple[list
             vq = vq.filter(_VS.authority_id == authority_id)
         latest_vaisala = vq.order_by(_VS.imported_at.desc()).first()
         if latest_vaisala:
+            from routers.vaisala import _build_view_rows
+            from routers.vaisala_programme import _policy
+            from services.vaisala_programme import build_programme
+            programme = build_programme(
+                _build_view_rows(db, latest_vaisala.id, 'section', 'combined', include_unknown=True, assess=False),
+                survey_id=latest_vaisala.id, policy=_policy(db, latest_vaisala.authority_id))
+            programme_by_section = {item['section_ref']: item for item in programme['items']}
             agg = db.query(
                 _func.count(_VSec.id).label("total"),
                 _func.coalesce(_func.sum(_VSec.length_m), 0).label("total_m"),
@@ -174,13 +181,19 @@ def _build_scored_assets(authority_id: Optional[int], db: Session) -> tuple[list
                 "green_count":      agg.green_count,
                 "red_km":           round(agg.red_m / 1000, 2),
                 "amber_km":         round(agg.amber_m / 1000, 2),
+                "programme_summary": programme['summary'],
+                "programme_model_version": programme['model_version'],
+                "programme_policy_version": programme['policy_version'],
                 "top5_sections": [
                     {
                         "section_ref":                 s.section_ref,
                         "road_name":                   s.road_name,
                         "priority_score":              s.priority_score,
                         "rag_band":                    s.rag_band,
-                        "treatment_assessment":        assess_treatments({key: getattr(s, key, None) for key in ASSESSMENT_INPUTS}),
+                        "treatment_assessment":        programme_by_section[s.section_ref]['treatment_assessment'],
+                        "programme_item_key":          programme_by_section[s.section_ref]['item_key'],
+                        "programme_brief":             programme_by_section[s.section_ref]['brief'],
+                        "programme_priority":          programme_by_section[s.section_ref]['priority_explanation'],
                         "primary_defect":              s.primary_defect,
                         "primary_defect_contribution": s.primary_defect_contribution,
                     }
@@ -444,8 +457,19 @@ def vaisala_section_narrative(
     ]
 
     import json
-    assessment = assess_treatments({key: getattr(section, key, None) for key in ASSESSMENT_INPUTS})
+    from services.vaisala_programme import programme_item
+    from routers.vaisala_programme import _policy
+    item = programme_item({**{key: getattr(section, key, None) for key in ASSESSMENT_INPUTS},
+                           'id': section.id, 'section_ref': section.section_ref,
+                           'net_reference': section.net_reference,
+                           'length_m': section.length_m, 'assessment_scope': 'section'},
+                          survey_id=survey.id, policy=_policy(db, survey.authority_id))
+    assessment = item['treatment_assessment']
     parts.append('Structured treatment assessment (whole section): ' + json.dumps(assessment))
+    parts.append('Deterministic action programme (whole-section preview, not a saved client decision): ' + json.dumps({
+        key: item[key] for key in ('item_key', 'model_version', 'policy_version', 'recommended_action',
+                                   'brief', 'next_question', 'prerequisite_tasks', 'evidence_status')}))
+    parts.append('Do not invent a queue rank: this individual section context does not include its complete cohort. Survey acquisition date is not established by the import date.')
 
     if section.primary_defect:
         contr = f" (score contribution: {_fmt(section.primary_defect_contribution, 4)} units)" if section.primary_defect_contribution else ""

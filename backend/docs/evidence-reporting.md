@@ -76,3 +76,10 @@ only for these SQLite API tests; PostgreSQL schema and operators are unchanged.
 `frontend/tests/vaisala-qc.test.mjs` checks section labels, percentile scenario
 labels, defect-group explanations, whole percentages and missing-data guidance.
 It can run against the deployed frontend with controlled API responses.
+
+## Vaisala action programme extension
+
+See [vaisala-action-programme.md](vaisala-action-programme.md) for deterministic next-action
+queues, source completeness safeguards, scoped ranks, programme snapshots and client review
+audit. Vaisala whole-section AI context now uses programme actions; full survey programme
+totals are distinct from the top-five example sections. No scoring arithmetic is changed.

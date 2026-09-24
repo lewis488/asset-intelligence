@@ -2,6 +2,12 @@
 
 Model version: `vaisala-candidates-v1` (23 September 2026).
 
+The [action programme](vaisala-action-programme.md) now supplies the client workflow,
+with separate evidence-validation and engineering queues, immutable saved assessments
+and recorded client decisions. The rules below describe the compatibility screening
+view; programme zero-observation outcomes are labelled No intervention indicated by
+this survey, and monitoring requires a client review decision.
+
 ## Scope
 
 `services/vaisala_treatments.py` derives an action, evidence, conditional candidates,

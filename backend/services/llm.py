@@ -100,6 +100,9 @@ def _build_asset_context(priority_assets: list[dict], stats: dict) -> str:
             f"Survey: {vs.get('source_filename')} | Network: {vs.get('network_key')}{drift_flag}",
             "RAG thresholds: Red ≥ 4.0 · Amber ≥ 1.8 (fixed evidence-derived thresholds, NOT percentile ranks).",
             "Red means the fixed weighted-condition threshold is exceeded; it does not establish structural failure.",
+            "Action programme totals below cover all sections in this survey; top-five examples are not the complete programme. Actions and ranks are deterministic: explain them without changing them or inventing deadlines, costs or survey dates.",
+            'Complete section programme summary: ' + json.dumps(vs.get('programme_summary', {})),
+            f"Programme model: {vs.get('programme_model_version')} | Policy: {vs.get('programme_policy_version')}",
             f"  Red sections:   {vs.get('red_count', 0):>5}  ({vs.get('red_km', 0):.2f} km)",
             f"  Amber sections: {vs.get('amber_count', 0):>5}  ({vs.get('amber_km', 0):.2f} km)",
             f"  Green sections: {vs.get('green_count', 0):>5}",
@@ -119,6 +122,8 @@ def _build_asset_context(priority_assets: list[dict], stats: dict) -> str:
             )
             if s.get('treatment_assessment'):
                 lines.append('  Structured treatment assessment: ' + json.dumps(s['treatment_assessment']))
+            if s.get('programme_item_key'):
+                lines.append(f"  Programme item {s['programme_item_key']}: {s.get('programme_brief')} {s.get('programme_priority')}")
 
     lines += [
         "",

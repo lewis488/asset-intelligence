@@ -10,6 +10,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from database import Base  # noqa: E402
 import models.user  # noqa: F401, E402
 import models.asset  # noqa: F401, E402
+import models.vaisala  # noqa: F401, E402
+import models.vaisala_programme  # noqa: F401, E402
 
 config = context.config
 fileConfig(config.config_file_name)

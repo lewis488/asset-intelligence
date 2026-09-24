@@ -36,13 +36,17 @@ def _number(value, maximum=None):
     return number
 
 
-def assess_treatments(row: dict) -> dict:
+def assess_treatments(row: dict, *, policy: dict | None = None) -> dict:
     """Consume whole percentages. Candidates are alternatives, not a design or cost appraisal.
 
     The original extent triggers are retained only for screening. Any structural
     indication warrants investigation, even below those triggers. No authority's
     traffic, policy, recurrence or pavement capacity is inferred from visual data.
     """
+    policy = policy or {}
+    local_trigger = policy.get('localised_threshold_pct', LOCALISED_THRESH * 100)
+    surface_trigger = policy.get('surface_threshold_pct', SURFACE_THRESH * 100)
+    qc_threshold = policy.get('qc_adequacy_pct', 85)
     values = {key: _number(row.get(key), 100) for key in GROUPS}
     detail = row.get('defect_proportions') or {}
     available = {key for key in RAG_VALIDATED_WEIGHTS if _number(detail.get(key), 100) is not None}
@@ -61,11 +65,13 @@ def assess_treatments(row: dict) -> dict:
     if not complete_detail:
         gaps.append('Complete valid defect readings are not established. Validate unobserved defect types; stored zeros may reflect absent or invalid source readings.')
     qc = [_number(row.get(key), 100) for key in ('qc_completeness_pct', 'qc_reliability_pct')]
-    quality_limited = any(v is None or v < 85 for v in qc)
+    quality_limited = any(v is None or v < qc_threshold for v in qc)
     if any(v is None for v in qc):
         gaps.append('Survey QC is incomplete or unknown; confirm coverage and validity.')
-    if any(v is not None and v < 85 for v in qc):
-        gaps.append('Survey QC is below the existing High band; validate observations and coverage.')
+    if any(v is not None and v < qc_threshold for v in qc):
+        gaps.append(('Survey QC is below the existing High band' if qc_threshold == 85 else
+                     f'Survey QC is below the programme policy threshold ({qc_threshold:g}%)')
+                    + '; validate observations and coverage.')
 
     candidates = []
     def candidate(name, rationale, prerequisites, cautions):
@@ -77,6 +83,10 @@ def assess_treatments(row: dict) -> dict:
     structural_drivers = [row.get(f'{position}_defect') for position in ('primary', 'secondary')
                           if row.get(f'{position}_defect') in STRUCTURAL_KEYS | {ALLIGATOR_KEY}
                           and (_number(row.get(f'{position}_defect_contribution')) or 0) > 0]
+    edge_details = [key for key in EDGE_KEYS if (_number(detail.get(key), 100) or 0) > 0]
+    edge_drivers = [row.get(f'{position}_defect') for position in ('primary', 'secondary')
+                    if row.get(f'{position}_defect') in EDGE_KEYS
+                    and (_number(row.get(f'{position}_defect_contribution')) or 0) > 0]
     partial_groups = set(row.get('observed_defect_groups') or [])
     structural = ((values['structural_pct'] or 0) > 0 or (values['alligator_pct'] or 0) > 0
                   or bool(structural_details) or bool(structural_drivers)
@@ -88,6 +98,10 @@ def assess_treatments(row: dict) -> dict:
             evidence.append(f'{GROUPS[key]}: positive observations in part of this extent; complete aggregate unavailable.')
     for key in sorted(structural_details):
         evidence.append(f'{key}: {float(detail[key]):.1f}% (individual defect)')
+    for key in sorted(edge_details):
+        evidence.append(f'{key}: {float(detail[key]):.1f}% (individual defect)')
+    for key in sorted(set(edge_drivers) - set(edge_details)):
+        evidence.append(f'{key}: positive recorded score contribution; affected extent may be unknown.')
     local = values['localised_pct'] or 0
     edge = values['edge_pct'] or 0
     surface = max(values['dressing_pct'] or 0, values['micro_pct'] or 0)
@@ -108,7 +122,7 @@ def assess_treatments(row: dict) -> dict:
         action = 'Monitor'
         reason = 'No positive defect-group measures are recorded; continue routine monitoring and safety inspections. This does not establish sound structure.'
 
-    if local >= LOCALISED_THRESH * 100:
+    if local > 0 and local >= local_trigger:
         candidate('Localised patch repair', f'Localised defect group is {local:.1f}%, meeting the legacy screening trigger.',
                   ['Confirm defect locations, repair depth and whether defects are genuinely localised.',
                    'Check repair recurrence, drainage and utility history.'],
@@ -120,7 +134,7 @@ def assess_treatments(row: dict) -> dict:
                    'Confirm whether local reconstruction or drainage/verge work is needed.'],
                   ['A surface patch alone may not restore edge support.'])
 
-    if surface >= SURFACE_THRESH * 100 and not structural:
+    if surface > 0 and surface >= surface_trigger and not structural:
         for name in ('Surface dressing', 'Micro-surfacing', 'Thin surfacing'):
             candidate(name, 'Surface-related defect extent meets a legacy screening trigger; compare alternatives after inspection.',
                       ['Confirm suitable pavement support, drainage, surface condition and defect mechanism.',
@@ -146,7 +160,20 @@ def assess_treatments(row: dict) -> dict:
             reason = 'The condition score indicates deterioration but positive defect-group evidence is absent; reconcile the evidence before selecting treatment.'
             gaps.append('Condition score and available defect-group measures do not explain one another.')
 
+    any_positive = (any((v or 0) > 0 for v in values.values()) or bool(partial_groups)
+                    or any((_number(value, 100) or 0) > 0 for value in detail.values())
+                    or any((_number(row.get(f'{position}_defect_contribution')) or 0) > 0
+                           for position in ('primary', 'secondary')))
+    flags = dict(structural_observed=structural,
+                 edge_observed=edge > 0 or 'edge_pct' in partial_groups or bool(edge_details or edge_drivers),
+                 any_positive=any_positive,
+                 complete_readings=complete_detail and not missing,
+                 qc_adequate=not quality_limited,
+                 evidence_conflict=not any_positive and (row.get('rag_band') in ('Red', 'Amber')
+                                    or (_number(row.get('priority_score')) or 0) > 0),
+                 candidate_trigger=bool(candidates))
     return dict(version=MODEL_VERSION, action=action, reason=reason, evidence=evidence,
+                evidence_flags=flags,
                 candidates=candidates, evidence_gaps=gaps,
                 screening_basis='Legacy extent triggers are provisional screening defaults, not national treatment criteria. QC bands describe survey quality only.',
                 surface_only_caution=('Structural-associated observations make surface-only treatment suitability unconfirmed.' if structural else None))

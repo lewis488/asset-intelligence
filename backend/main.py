@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 
 from config import settings
 from routers import auth as auth_router, assets, analysis, vaisala as vaisala_router, admin
+from routers import vaisala_programme
 
 logging.basicConfig(
     level=logging.INFO if settings.environment != "production" else logging.WARNING,
@@ -45,6 +46,7 @@ app.include_router(admin.router)
 app.include_router(assets.router)
 app.include_router(analysis.router)
 app.include_router(vaisala_router.router)
+app.include_router(vaisala_programme.router)
 
 
 @app.get("/health", tags=["ops"])
