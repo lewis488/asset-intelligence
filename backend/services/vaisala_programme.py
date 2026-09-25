@@ -7,7 +7,7 @@ from services.vaisala_treatments import assess_treatments, add_priority_percenti
 from services.vaisala_action_rules import proportionate_action
 from services.vaisala_section_appraisal import section_action, local_defect_flags
 
-MODEL_VERSION = 'vaisala-programme-v3'
+MODEL_VERSION = 'vaisala-programme-v3.1'
 LEGACY_DEFAULT_POLICY = dict(version='vaisala-programme-default-v1', localised_threshold_pct=5,
                       surface_threshold_pct=5, qc_adequacy_pct=85, automatic_monitoring_enabled=False)
 DEFAULT_POLICY = dict(version='vaisala-programme-default-v2', localised_threshold_pct=5,
@@ -115,6 +115,27 @@ def programme_item(row: dict, *, survey_id: int, policy: dict) -> dict:
         identity.append([source.get('from_m'), source.get('to_m'), source.get('id')])
     key = hashlib.sha256(json.dumps(identity, separators=(',', ':')).encode()).hexdigest()[:32]
     brief, question = BRIEFS[reason]
+    if action == 'evidence_validation' and reason == 'evidence_limited':
+        quality_reasons = []
+        for key, label in (('qc_reliability_pct', 'Reading reliability'),
+                           ('qc_completeness_pct', 'Survey completeness')):
+            value = _number(source.get(key), 100)
+            if value is None:
+                quality_reasons.append(f'{label} is unavailable')
+            elif value < policy['qc_adequacy_pct']:
+                quality_reasons.append(f"{label} is {value:.1f}%, below the policy requirement of {policy['qc_adequacy_pct']:g}%")
+        if not flags['complete_readings']:
+            quality_reasons.append('complete valid defect readings are not established for the assessed extent')
+        if flags['any_positive']:
+            brief = ('Defects are recorded, but evidence gaps limit confidence in their extent and severity across the assessed length. '
+                     'This is not a finding of acceptable condition. ')
+        else:
+            brief = 'The available evidence is insufficient to establish condition across the assessed length. '
+        if quality_reasons:
+            brief += '; '.join(quality_reasons) + '. '
+        brief += ('Review the original readings, imagery and coverage, then verify unresolved areas as needed to confirm '
+                  'the extent, severity and appropriate treatment. Treatment selection is pending evidence validation.')
+        question = 'What additional evidence is needed to confirm the affected extent, severity and appropriate treatment?'
     if reason == 'minor_acceptable':
         brief += f" Combined minor-defect screening upper bound {action_evidence['minor_extent_upper_bound_pct']:g}% < {policy['acceptable_minor_extent_pct']:g}%; overlapping observations are not unique damaged length."
     if reason == 'structural_extent':
@@ -131,6 +152,8 @@ def programme_item(row: dict, *, survey_id: int, policy: dict) -> dict:
     evidence_status = 'conflicting' if reason == 'evidence_conflict' else ('limited' if limited else 'adequate')
     # Keep candidates reusable, while avoiding contradictory old action headings.
     assessment = {**assessment, 'action': ACTIONS[action], 'reason': brief}
+    if action == 'evidence_validation' and not assessment['candidates']:
+        assessment['candidate_status_text'] = 'Treatment selection pending evidence validation'
     if scope == 'section':
         local_flags = source.get('local_defect_flags', local_defect_flags(source))
         assessment = {**assessment, 'maintenance_scope': 'section', 'local_defect_flags': local_flags,
@@ -138,6 +161,7 @@ def programme_item(row: dict, *, survey_id: int, policy: dict) -> dict:
             'screening_basis': 'Section maintenance and local defect review are separate. Extents are weighted survey measures, not unique damaged lengths. Most-severe interval exports are not averages of the original 5 m readings. Authority thresholds are provisional screening policy, not CVI indices.'}
         if action == 'evidence_validation':
             assessment['candidates'] = []
+            assessment['candidate_status_text'] = 'Treatment selection pending evidence validation'
         if action == 'treatment_appraisal':
             assessment['candidates'] = [dict(name='Appraise maintenance for the affected extent', status='conditional',
                 rationale=brief, prerequisites=['Review local defect flags and source imagery.',

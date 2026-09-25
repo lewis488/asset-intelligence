@@ -22,7 +22,7 @@ const reasons = {
 export default function VaisalaActionDiagnostics({ diagnostics }) {
   if (!diagnostics?.reason_counts) return null
   const extent = diagnostics.structural_group_extent || {}
-  const proportionate = ['vaisala-programme-v2', 'vaisala-programme-v3'].includes(diagnostics.model_version)
+  const proportionate = ['vaisala-programme-v2', 'vaisala-programme-v3', 'vaisala-programme-v3.1'].includes(diagnostics.model_version)
   return <details style={{ marginTop: 12, fontSize: 12, lineHeight: 1.65 }}>
     <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Why these actions?</summary>
     <p>Primary model routing reasons for these {diagnostics.total_items} assessed records. Each record has one primary reason; saved client decisions can change its working queue.</p>

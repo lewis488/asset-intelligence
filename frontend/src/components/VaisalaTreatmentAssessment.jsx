@@ -26,7 +26,7 @@ export default function VaisalaTreatmentAssessment({ assessment, scope, percenti
       </>}
       {assessment.surface_only_caution && <p style={{ color: 'var(--color-amber)' }}>{assessment.surface_only_caution}</p>}
       <strong>Conditional treatment candidates</strong>
-      {!assessment.candidates?.length && <p>No candidate selected from the available evidence.</p>}
+      {!assessment.candidates?.length && <p>{assessment.candidate_status_text || 'No candidate selected from the available evidence.'}</p>}
       {assessment.candidates?.map(candidate => (
         <details key={candidate.name} style={{ marginTop: 8, padding: 10, border: '1px solid var(--color-border)', borderRadius: 6 }}>
           <summary style={{ cursor: 'pointer', fontWeight: 600 }}>{candidate.name}</summary>

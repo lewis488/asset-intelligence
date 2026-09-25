@@ -123,7 +123,7 @@ def test_existing_survey_candidates_match_api_modes_exports_and_ai(api, ai_reque
     export = client.get(base + '/export?treatment_mode=percentile', headers=headers['manager'])
     frame = pd.read_csv(io.StringIO(export.text))
     assert frame['Next action'].iloc[0] == 'Validate evidence / further survey'
-    assert frame['Conditional candidates'].iloc[0] == 'No candidate selected'
+    assert frame['Conditional candidates'].iloc[0] == 'Treatment selection pending evidence validation'
     assert 'structural' in frame['Evidence gaps'].iloc[0].lower()
     assert 'Structural Defect Proportion (%)' in frame.columns
     workbook = client.get(base + '/export?format=xlsx', headers=headers['manager'])

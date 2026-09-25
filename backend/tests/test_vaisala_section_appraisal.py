@@ -30,6 +30,25 @@ def test_incomplete_green_keeps_local_observation_without_clearance():
     assert item['treatment_candidates'] == []
 
 
+def test_validation_explains_known_defects_and_specific_qc_gap():
+    row = observed({'Severe transverse cracking': 54.8658}, priority_score=9.2493,
+                   rag_band='Red', defect_evidence_complete=False,
+                   qc_completeness_pct=100, qc_reliability_pct=79.905206)
+    item = programme_item(row, survey_id=1, policy=DEFAULT_POLICY)
+    assert item['recommended_action'] == 'evidence_validation'
+    assert item['priority_score'] == 9.2493
+    assert 'Defects are recorded' in item['brief']
+    assert '79.9%, below the policy requirement of 85%' in item['brief']
+    assert 'complete valid defect readings are not established' in item['brief']
+    assert item['treatment_assessment']['candidate_status_text'] == 'Treatment selection pending evidence validation'
+
+
+def test_unknown_readings_do_not_claim_confirmed_defects():
+    item = programme_item(observed(defect_evidence_complete=False), survey_id=1, policy=DEFAULT_POLICY)
+    assert 'Defects are recorded' not in item['brief']
+    assert 'insufficient to establish condition' in item['brief']
+
+
 def test_chainage_subsections_and_full_defect_evidence_survive_import():
     import io
     import json

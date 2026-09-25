@@ -72,7 +72,7 @@ def test_proportionate_actions_reconcile_across_live_views_exports_and_snapshot(
         db.commit()
     base = f'/vaisala/surveys/{survey_id}'
     programme = client.get(base + '/programme', headers=headers['viewer']).json()
-    assert programme['model_version'] == 'vaisala-programme-v3'
+    assert programme['model_version'] == 'vaisala-programme-v3.1'
     assert programme['summary']['action_counts'] == {action: 1 for action in ACTIONS}
     lookup = {r['section_ref']: r for r in programme['items']}
     for ref, _, _, action in examples:
@@ -96,7 +96,7 @@ def test_proportionate_actions_reconcile_across_live_views_exports_and_snapshot(
     assert next(r for r in revised['items'] if r['section_ref'] == 'MINOR')['recommended_action'] == 'monitor'
     frozen = client.get(base + f"/programmes/{snapshot['id']}", headers=headers['viewer']).json()
     assert frozen['items'] == snapshot['items']
-    assert client.get('/health').json()['vaisala_action_model'] == 'vaisala-programme-v3'
+    assert client.get('/health').json()['vaisala_action_model'] == 'vaisala-programme-v3.1'
 
 
 def test_old_policy_is_available_without_enabling_monitoring(api, survey):

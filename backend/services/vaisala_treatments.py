@@ -181,7 +181,7 @@ def assess_treatments(row: dict, *, policy: dict | None = None) -> dict:
 
 def assessment_fields(row: dict, *, assessment: dict | None = None) -> dict:
     assessment = assessment if assessment is not None else assess_treatments(row)
-    summary = '; '.join(c['name'] for c in assessment['candidates']) or 'No candidate selected'
+    summary = '; '.join(c['name'] for c in assessment['candidates']) or assessment.get('candidate_status_text') or 'No candidate selected'
     return dict(treatment_assessment=assessment, recommended_action=assessment['action'],
                 treatment=summary, candidate_summary=summary,
                 assessment_reason=assessment['reason'],
