@@ -1,94 +1,190 @@
-# Business logic
+# Business Logic
 
-Domain rules that drive scoring, banding, treatment assignment, and Vaisala DST view construction. Every rule below is enforced in code; formulas and thresholds are cross-referenced in [analytical-models.md](./analytical-models.md).
+## Product Purpose
 
-## Asset composite score (SCANNER + CVI + SCRIM + Reactive)
+Decision Support Tool (DST) for UK local highway authorities. Ingests condition survey data (SCANNER, CVI, SCRIM), reactive maintenance records, Vaisala survey data, and network geometry — linked by NSG reference — to produce a prioritised network intelligence list with AI-generated briefings.
 
-Implemented in `backend/services/scoring.py`. Composite score is the sum of four components, band membership tuned by env-driven cut points in `backend/config/__init__.py`.
+Intelligence must emerge from data, not hardcoded narratives. Every insight the AI produces is derived from uploaded data using established UK highways engineering methodology.
 
-- **CI score (0–40 pts)** — from the latest `scanner_records` row of an asset. `RCI_BAND="Red"` awards the ceiling; Amber scales with `avg_ci`; Green is `max(0, avg_ci / 10)`. A red-percentage bonus of `min(red_pct * 2, 20)` is added.
-- **Defect driver score (0–30 pts)** — flat point awards when defect-driver percentages exceed configurable thresholds (LPV, Rutting, Cracking, Texture). Additional bonuses for high red or amber percentages.
-- **EDI score (0–15 pts)** — only applied to B and C class roads. Zero below 20; step function up to 15.
-- **CVI score (0–65 pts)** — used on unclassified roads instead of SCANNER-based CI. Structural, edge, wearing-course sub-scores capped independently.
-- **SCRIM score (0–30 pts)** — 20 base points if `safety_flagged`; up to +10 more scaled by `pct_below_il`.
-- **Reactive score (0–30 pts)** — jobs count in a rolling 12-month window plus emergency count in 6-month window, capped, with a fixed recency bonus when the most recent defect is within 90 days.
+## Data Sources and Scope
 
-Risk band assignment (from `config.risk_critical` / `risk_high` / `risk_medium`, defaults 65 / 40 / 20):
+| Source | Road types | Format | Parser |
+|--------|-----------|--------|--------|
+| SCANNER | Classified (A, B, C) | Confirm 10m intervals or HMDIF Excel | `parse_scanner_raw()`, `parse_scanner_excel()` |
+| CVI | Unclassified (U) | Confirm variable-length sections or CSV | `parse_cvi_raw()`, `parse_cvi_csv()` |
+| SCRIM | Classified (A, B, C) skid | Confirm 10m intervals | `parse_scrim_raw()` |
+| Reactive | All | Confirm jobs export or CSV | `parse_reactive_raw()`, `parse_reactive_csv()` |
+| Network SHP | ABCD | GeoPackage or zipped SHP | `parse_network_file()` |
+| Vaisala | Classified | RoadAI XLSX/CSV or pre-scored SHP | `vaisala_scoring.parse_raw_xlsx()` etc. |
 
-- ≥ 65: Critical
-- 40–64: High
-- 20–39: Medium
-- < 20: Low
+## Authority Isolation
 
-Treatment recommendation (`_treatment`, `backend/services/scoring.py`): decision tree over `avg_ci` and dominant defect driver. Outputs one of Structural / Inlay / Overlay / Patching / Micro-surfacing / Surface Dressing / Monitoring.
+All data is authority-scoped. Every DB query filters by `authority_id`. No cross-authority data access is possible. Registering an authority creates an isolated data environment.
 
-## Vaisala DST scoring
+## NSG Reference as Primary Key
 
-Implemented in `backend/services/vaisala_scoring.py` and ported from `vaisala_dst_handoff/priority_dst.html`. The engine operates in three phases: parse → aggregate → assign.
+NSG reference links all datasets. Leading zeros are stripped on ingest and normalised to plain string. All join operations between survey data and network geometry use `nsg_ref`. Mismatches between NSG formats across data sources are the primary cause of low coverage scores.
 
-### Parse
+## Two RoadIQ+ Implementations
 
-- XLSX and CSV parsers detect columns by fuzzy-match against candidate lists per network config (`stroud`, `wscc`).
-- `_recover_hyperlinks_in_df` scans link-shaped columns (regex `link|url|hyperlink|video`) and rewrites cell values from `cell.hyperlink.target`, `=HYPERLINK(...)`, or plain http strings. Columns that look like link columns but yield zero recoverable URLs are returned as `flattened_link_warnings`.
-- `_attach_extras_json_column` serialises the recovered link columns plus known passthrough keys (Time UTC, Lat/Lon, Video Link, Map Link, ...) as a JSON string per row and stashes it under `__extras_json`. This travels through aggregation and lands on each interval row's `extras_json` column.
-- `_parse_info_sheet` reads the XLSX `Info` sheet for client/district, road class, from/to date, interval length, multiple drives.
-- `_dedup_by_latest_pass` groups rows by `(section, from_m, to_m)`. If two or more rows share a key, the row with the greatest parsed `Time UTC` is retained. Fallback (no time column): last row seen. Returns `(df, dup_groups)`.
+The RoadIQ+ model (Confirm-format data) has two implementations. RoadIQ (Vaisala) is a third, separate model:
 
-### Aggregate
+| Model | File | Data source | Status |
+|-------|------|-------------|--------|
+| **RoadIQ+** (production) | `routers/assets.py:_score_asset()` | Confirm datasets (SCANNER, CVI, SCRIM, reactive, network) | Live production |
+| **RoadIQ+** (standalone) | `services/scoring.py` | Confirm HMDIF SCANNER (`ci_contribution_*` columns) | Not called by production API; standalone/experimental |
+| **RoadIQ** | `services/vaisala_scoring.py` | Vaisala RoadAI XLSX/CSV/SHP | Live production, separate module |
 
-- Vectorised scoring: `defect_matrix @ weight_vec / sum(weights) * 100` yields the raw interval score.
-- Interval-level primary defect: `argmax(defect_matrix * weight_vec)`.
-- Section-level aggregation: length-weighted average of interval scores plus a length-weighted average of every defect-group percentage. Section-level primary/secondary defects are chosen from the section-average defect contribution matrix, not from any single interval.
+The two RoadIQ+ implementations are intentionally different at this build stage — `scoring.py` uses defect driver analysis requiring `ci_contribution_*` columns from HMDIF Excel, which `_score_asset()` does not use. `_score_asset()` includes a full SCRIM component (0–30 pts) that `scoring.py` lacks. They diverge by design, not drift. Env-configurable weights in `scoring.py` (`DD_LPV_POINTS` etc.) do not affect live production scores.
 
-### Assign (RAG band + treatment)
+RoadIQ (`services/vaisala_scoring.py`) is an entirely separate model for Vaisala RoadAI data. It is not a variant of RoadIQ+ and shares no code path with either RoadIQ+ implementation. Future roadmap item: unify RoadIQ and RoadIQ+ so treatment selection and programme costing draw on both models jointly. See technical-debt.md § Two RoadIQ+ Implementations.
 
-- `assign_rag(score)` — **fixed** thresholds. `Red ≥ 4.0`, `Amber ≥ 1.8`, else `Green`. Evidence-derived against real WSCC data; not percentile-based; not user-configurable.
-- `assign_treatment(structural, alligator, localised, dressing, micro, edge)` — defect-pattern decision tree:
-  1. `structural ≥ STRUCTURAL_THRESH` → Resurfacing
-  2. `alligator ≥ ALLIGATOR_TIER_THRESH` → Resurfacing
-  3. `localised ≥ LOCALISED_THRESH` (or alligator ≥ LOCALISED_THRESH but below the tier threshold) → Patching
-  4. `max(dressing, micro) ≥ SURFACE_THRESH` → Surface Dressing when dressing dominates, else Micro-surfacing
-  5. `edge ≥ LOCALISED_THRESH` → Patching
-  6. Default → Monitor / Patching
-- `assign_treatment_percentile(rank_pct)` — alternative percentile-based mode. Percentile rank of each row's `priority_score` (ascending, so worst-scoring rows land at rank 100) maps to `PERCENTILE_TREATMENTS`: `≥90 → Resurfacing`, `≥75 → Surface Dressing`, `≥50 → Micro-surfacing`, else `Monitor / Patching`. Applied over the currently visible view (scale + split) so the ranking is meaningful within a like-for-like set.
-- `detect_weight_drift(weights)` — flags any active defect weight that differs from `RAG_VALIDATED_WEIGHTS`. When drift is present the RAG banding is still applied, but the drift is surfaced on the frontend (RAG reliability warning).
+## RoadIQ+ Composite Scoring (Production — _score_asset)
 
-## View construction (Vaisala tab)
+**File:** `routers/assets.py:_score_asset()` (lines 46–276)
 
-`backend/routers/vaisala.py` composes each request's row set through `_build_view_rows(db, survey_id, merge_scale, split)`. This is the pivot point where merge scale, split, and treatment mode combine.
+Live production scorer for Confirm-format datasets. Queries DB, combines all available data, returns a scored dict. Called on every `GET /assets/` request.
 
-### Merge scale
+Four components, all optional (score is 0 if dataset absent):
 
-- `section` — persisted `VaisalaSection` rows.
-- `100m` — synthesised. Intervals grouped by `section_ref`; `_chunk_respecting_subgroups` splits on `net_reference` sub-groups first to avoid mixing disconnected road stretches, then `_chunk_by_length(100 m)` slices each sub-group. Remainder < 50 m is merged into the last chunk.
-- `10m` — raw `VaisalaInterval` rows, one dict per interval, chunk_label `"from-to m"`.
+| Component | Max pts | Source table |
+|-----------|---------|-------------|
+| SCANNER score | 60 | scanner_raw_records |
+| CVI score | 65 | cvi_raw_records |
+| SCRIM score | 30 | scrim_records |
+| Reactive score | 30 | reactive_aggregates |
 
-Chunk label is attached to interval-derived rows: `"from-to m"` for 10m, `"from-to m (chunk i/n)"` for 100m, `None` for section-scale.
+**SCANNER component (0–60 pts):**
+- `rci_band == "Red"`: ci_score = 40.0
+- `rci_band == "Amber"`: ci_score = 20.0 + (avg_ci / 100.0 × 10.0)
+- `rci_band == "Green"`: ci_score = max(0.0, avg_ci / 10.0)
+- `scanner_score = ci_score + min(red_pct × 2.0, 20.0)`
 
-### Split (Urban / Rural / Combined)
+**CVI component (0–65 pts):**
+- structural: min(max_ci_structural / 85.0 × 40.0, 40.0)
+- edge: min(max_ci_edge / 50.0 × 15.0, 15.0)
+- wearing course: min(max_ci_wearingcourse / 60.0 × 10.0, 10.0)
 
-- `urban` — always forces the effective scale to `section` (per the reference brief: urban roads score at whole-section length regardless of the selected scale). Rows are filtered by `urban_rural = 'U'`.
-- `rural` — scaled rows filtered by `urban_rural = 'R'`.
-- `combined` at non-section scale — urban section rows unioned with rural scaled rows. When no Urban/Rural indicator exists on the survey (e.g. WSCC), combined falls back to the plain scaled row set.
+**SCRIM component (0–30 pts):**
+- `safety_flagged == True`: 20.0 + min(pct_below_il, 10.0)
+- `safety_flagged == False`: 0.0
 
-Views with no persisted intervals raise HTTP 422 with a "re-upload the raw file to enable 10m/100m scales" message.
+**Reactive component (0–30 pts):**
+- job_score = min(total_jobs_raised × 2.0, 15.0)
+- emergency_score = min(emergency_jobs_2hr × 3.0, 10.0)
+- recency_score = 5.0 if days_since_most_recent_defect < 90 else 0.0
 
-### Treatment mode
+**Risk bands (composite score):**
+- Critical: ≥ 65
+- High: 40–64
+- Medium: 20–39
+- Low: < 20
 
-`defect` (default) keeps whichever treatment the engine wrote at parse time. `percentile` overwrites the `treatment` field of every row in the current view via `_apply_percentile_treatments` before filter/sort/paginate. Ranking scope is the whole view; filtering by treatment happens after ranking so a percentile filter can be applied downstream without breaking the rank.
+**Score completeness:** count(datasets_present) / 4 × 100. Low completeness = low confidence in score.
 
-## Weight drift semantics
+**Note — standalone scoring.py:** `services/scoring.py` is a standalone version of RoadIQ+ with defect driver analysis. It uses different inputs and a different formula — not a copy of `_score_asset()`. It does not drive live scores. See technical-debt.md § Two Scoring Models.
 
-When a caller supplies `weights_json` on `POST /vaisala/upload/raw`, the parser scores against those weights and records per-key deltas from `RAG_VALIDATED_WEIGHTS` in `vaisala_rag_drift_log`. `VaisalaSurvey.has_weight_drift` is set true when at least one row lands in that table. The frontend surfaces a warning banner (`DriftWarning`) that the fixed RAG cutpoints were derived under a specific weight set and drift makes the banding less reliable.
+## Treatment Recommendations (Production)
 
-## Deduplication semantics
+**File:** `routers/assets.py:_score_asset()` lines 145–213
 
-The dedup rule keys on `(section, from_m, to_m)` — the physical stretch — not on the section alone. Two passes over the same stretch reduce to one; two passes of different length or different `from_m` do not collapse. When time is missing, the "last seen" fallback is deterministic only if the source file's row order is deterministic.
+Treatment strings and urgency labels are derived from condition data. Cost bands are unit rates in £/m² — hardcoded, not env-configurable.
 
-## Export composition
+**SCANNER-driven treatments:**
 
-Export is a pure derivation of the view; no state persisted.
+| Condition | Treatment | Urgency | Cost (£/m²) |
+|-----------|-----------|---------|-------------|
+| Red + red_pct > 15 + emergency reactive | Urgent reconstruction | Immediate | 80–150 |
+| Red + red_pct > 15 | Inlay / reconstruction | This financial year | 45–80 |
+| Red + red_pct ≤ 15 | Inlay (mill and fill) | This financial year | 20–45 |
+| Amber + red_pct > 25 | Inlay (mill and fill) | Programme next year | 20–35 |
+| Amber + red_pct > 10 | Thin surfacing | Programme next year | 12–20 |
+| Amber | Surface dressing / micro-asphalt | Monitor and programme | 5–14 |
+| Green + >5 reactive jobs | Investigate — reactive masking | Investigate this year | 0 |
+| Green | Monitor | Routine inspection | 0 |
 
-- CSV — human-readable column labels (`Section`, `Extent`, `Road Name`, ...). Raw passthrough columns from `extras` are appended at 10m/100m scales only.
-- XLSX — CSV columns plus openpyxl styling: dark header, RAG-band fill, treatment fill, hyperlink cells for recovered URL columns.
-- SHP — geopandas + pyogrio. Requires an active network geometry layer. Rows are joined by `section_ref → section_key` with a leading-zero normalisation fallback. Emitted as a zipped `.shp/.shx/.dbf/.prj`. Rows that do not match any geometry feature are dropped and reported via response headers.
+**CVI-driven treatments (when no SCANNER):**
+
+| Flag | Treatment | Urgency | Cost (£/m²) |
+|------|-----------|---------|-------------|
+| structural_flagged | Structural repair / reconstruction | This financial year | 45–150 |
+| wearingcourse_flagged | Surface dressing / micro-asphalt | Programme next year | 5–14 |
+| edge_flagged | Edge treatment | Programme next year | 25–38 |
+| None flagged | Monitor | Routine inspection | 0 |
+
+**Evidence reporting (23 September 2026):** The table above describes legacy screening categories, not approved designs. Intervention strings now append "indicative candidate; engineering review required". The emergency-reactive branch reads "Investigate for deeper repair / reconstruction".
+
+**SCRIM override:** When `safety_flagged == True`, appends "+ Safety: skid resistance investigation required" and sets urgency to "Site-risk assessment required; apply authority response policy". The safety flag and score remain unchanged.
+
+**Dataset availability rating:** High = 3–4 datasets, Medium = 2, Low = 0–1. The API retains the `confidence` field; this is not diagnostic certainty or treatment readiness.
+
+**Note:** Cost bands are unit rates only. Total cost per section (unit rate × length) is NOT calculated in the application. See technical-debt.md.
+
+## Vaisala Business Logic
+
+**File:** `services/vaisala_scoring.py`
+
+Operates as a separate DST module. Vaisala scoring is NOT combined with the SCANNER/CVI/SCRIM/reactive composite.
+
+**Scoring formula:** `interval_score = (Σ defect_proportion × weight) / Σ all_weights × 100`
+`section_score = length-weighted average of interval_scores`
+
+**RAG classification (fixed — not configurable):**
+- Red: ≥ 4.0
+- Amber: ≥ 1.8
+- Green: < 1.8
+
+These thresholds are evidence-derived against real WSCC survey data (`RAG_DERIVATION_NOTE` in `vaisala_scoring.py:49–53`). Changing them breaks RAG comparability across surveys. They are NOT env variables.
+
+**Treatment decision tree** (`assign_treatment()`, lines 168–182):
+
+This is the legacy stored/imported label. Current Vaisala output derives an action
+and conditional candidates on read; see [vaisala-treatment-candidates.md](vaisala-treatment-candidates.md).
+Existing survey rows are not rewritten. Percentile rank no longer selects treatment.
+- structural_pct ≥ 0.20 OR alligator_pct ≥ 0.15 → Resurfacing
+- localised_pct ≥ 0.05 OR alligator_pct in [0.05, 0.15) → Patching
+- dressing or micro ≥ 0.05 → Surface Dressing or Micro-surfacing (whichever dominant)
+- edge_pct ≥ 0.05 → Patching
+- else → Monitor / Patching
+
+**Deduplication:** keys on `(section, from_m, to_m)` — physical stretch, not section alone. Two passes of different length/chainage do not collapse into one (`_dedup_by_latest_pass()`, line 469).
+
+**Urban split:** always forces merge scale to "section" regardless of user selection. Documented rule from original brief.
+
+**Percentile treatment ranks:** scale-scoped. 10m/100m/section ranks are not comparable across scales.
+
+**Weight drift detection:** `detect_weight_drift()` compares current weights against `RAG_VALIDATED_WEIGHTS`. Any deviation is reported on upload.
+
+## Ingestion Business Rules
+
+- **SCANNER red_pct convention:** Red band = presence of red lengths (red_pct > 0), NOT avg_ci ≥ 100. Most sections never average ≥ 100 even if they contain red 10m intervals.
+- **CI direction:** higher = worse for both SCANNER and CVI.
+- **SCRIM SFC=0 exclusion:** SFC=0 means no reading was taken, not actual zero skid resistance. Zero rows are excluded from mean/min calculations.
+- **SCRIM safety flag:** XDIF < 0 means measured SFC is below the investigatory level for that section type.
+- **Reactive filtering:** Only condition-relevant job types ingested (potholes, patching, verge repairs, kerb/edge works, covers/gullies). Only "Works Complete" and "Work Inspected" statuses. Other job types filtered out.
+- **Network ownership filter:** Only CLASS ∈ {A, B, C, D} AND OWNERSHIP == "WEST SUSSEX COUNTY COUNCIL". Other records excluded. This filter is hardcoded — other authorities require code change.
+
+## Column Alias Matching
+
+All parsers use alias-based column matching, never a single hardcoded string. Case-insensitive partial match.
+
+- SCANNER Excel: `_SECTION_COL_MAP` (group × column keyword pairs, ingestion.py:25–60)
+- SCANNER CSV: `_SCANNER_CSV_ALIASES` (ingestion.py:253–283)
+- CVI: `_CVI_ALIASES` (ingestion.py:370–379)
+- Reactive: `_REACTIVE_ALIASES` (ingestion.py:429–438)
+- Vaisala: `_find_col()` with candidate lists (vaisala_scoring.py:133–140)
+- Validation: `DatasetSchema.ColumnSpec.aliases` list per field
+
+Reason: field names differ between SHP exports, XLSX exports, and Confirm exports for the same logical field (e.g., PAS 2161 appears as "PAS2161", "PAS2161 Category", "PAS 2161", "PAS 2161 RCM category").
+
+## AI Analysis Layer
+
+`POST /analysis/run` triggers: (1) score all assets for authority, (2) build stats dict, (3) construct LLM prompt with dataset context, (4) call Claude API, (5) persist `AnalysisRun`.
+
+`POST /analysis/query` supports multi-turn free-text queries against the same loaded dataset.
+
+Knowledge base (`services/knowledge.py:ALL_KNOWLEDGE`) is injected as cached system prompt content on every LLM call.
+
+See [evidence-reporting.md](evidence-reporting.md) for stage 1 interpretation rules, whole-percentage context corrections and reporting limits. Network briefings and chat use the authority-neutral knowledge base; section narratives use the shared evidence rules without that full base.
+
+`GET /analysis/stats` returns KPI statistics without any LLM call.

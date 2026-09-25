@@ -1,160 +1,249 @@
-# Analytical models
+# Analytical Models
 
-Formulas, thresholds, and tunable knobs.
+## SCANNER Condition Model
 
-## Vaisala DST — priority score
+### Input
+Confirm SCANNER export: 10m interval rows with CI_VALUE, OFFSET (nearside=-5, offside=5, centre=other), SURVEY_DATE, NSG.
 
-Location: `backend/services/vaisala_scoring.py`.
+### Aggregation
+`services/ingestion.py:parse_scanner_raw()` (line 702) — one record per `(NSG, survey_year, offset_direction)`.
+
+- `avg_ci`: mean CI_VALUE across all intervals for the group
+- `red_pct`: `count(CI_VALUE ≥ 100) / total_intervals × 100`
+- `amber_pct`: `count(40 ≤ CI_VALUE < 100) / total_intervals × 100`
+- `green_pct`: `count(CI_VALUE < 40) / total_intervals × 100`
+- `total_length_m`: `interval_count × 10` (each row = 10m)
+- `rci_band`: Red if `red_pct > 0`, else Amber if `amber_pct > 0`, else Green
+
+### CI Band Thresholds (UKPMS standard)
+- Green: CI < 40
+- Amber: 40 ≤ CI < 100
+- Red: CI ≥ 100
+
+### Key invariant
+Red band is determined by presence of red lengths (red_pct > 0), NOT by avg_ci ≥ 100. A section with avg_ci = 35 can have red_pct = 2.1% (a few bad 10m intervals). Treating avg_ci ≥ 100 as the red threshold was an early implementation bug and must not be reintroduced.
+
+### Chunked processing
+Files > 10 MB use `_parse_scanner_raw_chunked()` (line 551). Maintains running per-group stats across chunks. Peak DataFrame size = `_CHUNK_ROWS` (10,000 rows), regardless of file size.
+
+---
+
+## CVI Condition Model
+
+### Input
+Confirm CVI export: variable-length section rows with CI_OVRLL, CI_STRUC, CI_EDGE, CI_WCRSE, SECTIONLEN, SURVEY_DATE, NSG.
+
+### Aggregation
+`services/ingestion.py:parse_cvi_raw()` (line 803) — one record per `(NSG, survey_year)`.
+
+- `avg_ci_overall`: length-weighted average `CI_OVRLL`
+- `max_ci_structural`: max `CI_STRUC` across sub-sections
+- `max_ci_edge`: max `CI_EDGE`
+- `max_ci_wearingcourse`: max `CI_WCRSE`
+
+### BV224b Flags (HD28/DfT thresholds)
+- `structural_flagged`: max_ci_structural ≥ 85
+- `edge_flagged`: max_ci_edge ≥ 50
+- `wearingcourse_flagged`: max_ci_wearingcourse ≥ 60
+
+Flag logic uses max (not average) — any sub-section exceeding threshold triggers the flag. This reflects BV224b indicator methodology where worst-case drives intervention need.
+
+### pct_length_*_flagged
+Proportion of total section length where each domain CI exceeds the threshold.
+
+---
+
+## SCRIM Skid Resistance Model
+
+### Input
+Confirm SCRIM export: 10m interval rows with SFC, SFCT (threshold), XDIF (SFC − SFCT), ILCT (site category), NSG, SURVEYDATE.
+
+### Aggregation
+`services/ingestion.py:parse_scrim_raw()` (line 913) — one record per `(NSG, survey_year)`.
+
+- `mean_sfc`: mean SFC excluding SFC=0 rows
+- `min_sfc`: worst (lowest) SFC excluding SFC=0 rows
+- `sections_below_il`: count of intervals with XDIF < 0
+- `pct_below_il`: `sections_below_il / total_intervals × 100`
+- `safety_flagged`: True if any XDIF < 0
+- `worst_xdif`: most negative XDIF value (largest deficit below investigatory level)
+
+### SFC=0 Exclusion
+SFC=0 indicates no reading was taken at that interval (not actual zero skid resistance). Including zeros would bias mean/min downward. Excluded from all statistics.
+
+### Investigatory Level
+XDIF = SFC − SFCT. SFCT is the site-specific investigatory level from the ILCT lookup. XDIF < 0 means measured skid resistance is below the level requiring investigation under DMRB HD28.
+
+---
+
+## Composite Risk Scoring Model (Production)
+
+**Source:** `routers/assets.py:_score_asset()` lines 46–276.
+
+### Component weights and formulas
 
 ```
-per_interval:
-    interval_score = (defect_matrix @ weight_vec) / sum(weights) * 100
+SCANNER (0–60 pts):
+  rci_band == Red:   ci_score = 40.0
+  rci_band == Amber: ci_score = 20.0 + (avg_ci / 100.0 × 10.0)
+  rci_band == Green: ci_score = max(0.0, avg_ci / 10.0)
+  scanner_score = ci_score + min(red_pct × 2.0, 20.0)
 
-per_section:
-    priority_score       = length-weighted mean of interval_score across intervals in the section
-    worst_interval_score = max(interval_score) within the section
-    structural_pct       = length-weighted mean of the "structural group" proportion
-    localised_pct        = length-weighted mean of the "localised group" proportion
-    dressing_pct         = length-weighted mean of the "dressing group" proportion
-    micro_pct            = length-weighted mean of the "micro group" proportion
-    alligator_pct        = length-weighted mean of the alligator column
-    edge_pct             = length-weighted mean of the "edge group" proportion
+CVI (0–65 pts):
+  structural = min(max_ci_structural / 85.0 × 40.0, 40.0)
+  edge       = min(max_ci_edge       / 50.0 × 15.0, 15.0)
+  wc         = min(max_ci_wc         / 60.0 × 10.0, 10.0)
+  cvi_score  = structural + edge + wc
+
+SCRIM (0–30 pts):
+  safety_flagged: 20.0 + min(pct_below_il, 10.0)
+  else:           0.0
+
+Reactive (0–30 pts):
+  job_score       = min(total_jobs_raised × 2.0, 15.0)
+  emergency_score = min(emergency_jobs_2hr × 3.0, 10.0)
+  recency_score   = 5.0 if days_since_most_recent_defect < 90 else 0.0
+  reactive_score  = job_score + emergency_score + recency_score
+
+composite = scanner_score + cvi_score + scrim_score + reactive_score
 ```
 
-Vectorised via NumPy: all rows scored in one matrix multiply against a pre-extracted `weight_vec`. Primary defect on an interval is `argmax(defect_matrix * weight_vec)` — the defect with the highest weighted contribution. Section-level primary/secondary defects are derived from the section-average contribution matrix.
+### Risk Bands
+- Critical: ≥ 65
+- High: 40–64
+- Medium: 20–39
+- Low: < 20
 
-### Defect weights (RAG-validated)
+### Dataset interaction
+SCANNER and CVI components are NOT mutually exclusive — both can contribute to composite. In practice, classified roads have SCANNER data and unclassified roads have CVI data, but the model does not enforce this distinction.
 
-`RAG_VALIDATED_WEIGHTS` (frozen constant, `backend/services/vaisala_scoring.py`):
+### Standalone Scoring Engine (services/scoring.py)
+A separate, cleaner scoring engine exists with different formulas and scales (SCANNER: 0–100, no SCRIM component). It is not called by the production API. See technical-debt.md.
 
-| Defect key | Weight |
-| --- | --- |
-| Alligator cracking | 8 |
-| Minor longitudinal cracking | 1 |
-| Moderate longitudinal cracking | 3 |
-| Severe longitudinal cracking | 6 |
-| Wheel track cracking | 6 |
-| Minor transverse cracking | 1 |
-| Moderate transverse cracking | 3 |
-| Severe transverse cracking | 6 |
-| Minor pothole | 4 |
-| Moderate pothole | 7 |
-| Severe pothole | 10 |
-| Left edge deterioration | 3 |
-| Right edge deterioration | 3 |
-| Moderate fretting | 2 |
-| Severe fretting | 4 |
-| Defective asphalt overlay | 4 |
-| Binder bleeding | 5 |
+---
+
+## Vaisala Scoring Model
+
+**Source:** `services/vaisala_scoring.py`
+
+### Defect weighting
+18 defect types with validated weights (`RAG_VALIDATED_WEIGHTS`, line 25):
+
+| Defect | Weight |
+|--------|--------|
 | Subsidence | 10 |
+| Severe pothole | 10 |
+| Moderate pothole | 7 |
+| Alligator cracking | 8 |
+| Binder bleeding | 5 |
+| Wheel track cracking | 6 |
+| Severe longitudinal cracking | 6 |
+| Severe transverse cracking | 6 |
+| Defective asphalt overlay | 4 |
+| Severe fretting | 4 |
+| Minor pothole | 4 |
+| Left/Right edge deterioration | 3 each |
+| Moderate longitudinal cracking | 3 |
+| Moderate transverse cracking | 3 |
+| Moderate fretting | 2 |
+| Minor longitudinal cracking | 1 |
+| Minor transverse cracking | 1 |
 
-RAG thresholds (fixed, evidence-derived, not user-tunable):
+These weights are frozen. They were validated against real WSCC data to derive the RAG thresholds. Changing weights invalidates the thresholds.
 
-- Red ≥ 4.0
-- Amber ≥ 1.8
-- Green < 1.8
+### Interval scoring (vectorised)
+`_aggregate_intervals()` line 245:
+```
+defect_matrix = [proportion values for all defect columns]
+weight_vec    = [weights in same order]
+interval_score = (defect_matrix @ weight_vec) / sum(weights) × 100
+```
 
-### Defect groups
+Vectorised across all rows simultaneously (numpy matrix multiply).
 
-Used by both aggregation and the defect-pattern treatment decision tree.
+### Section scoring
+Length-weighted average of interval scores:
+```
+section_score = Σ(interval_score × interval_length) / total_section_length
+```
 
-- `STRUCTURAL_KEYS` — Subsidence, Severe pothole, Wheel track cracking, Severe cracking variants.
-- `ALLIGATOR_KEY` — Alligator cracking (single, weight-8 tier).
-- `LOCALISED_KEYS` — Minor / Moderate pothole.
-- `DRESSING_KEYS` — Severe fretting, Defective asphalt overlay.
-- `MICRO_KEYS` — Binder bleeding, Moderate fretting, minor/moderate cracking variants.
-- `EDGE_KEYS` — Left / Right edge deterioration.
+### RAG Thresholds (fixed, evidence-derived)
+- Red: section_score ≥ 4.0
+- Amber: section_score ≥ 1.8
+- Green: section_score < 1.8
 
-### Treatment thresholds (defect-pattern mode)
+Derivation: `RAG_DERIVATION_NOTE` in `vaisala_scoring.py:49–53`:
+> "Red ≥ 4.0: median score of Resurfacing-triggering sections was 5.46, 90th percentile 3.72.
+> Amber ≥ 1.8: separates any-treatment-needed roads from Monitor-only with low false-positive rate.
+> Derived against real WSCC survey data."
 
-Named constants at module scope in `backend/services/vaisala_scoring.py`:
+**These thresholds are not env-configurable.** Unlike every other scoring parameter in this codebase. Reason: changing them breaks RAG comparability across surveys.
 
-- `STRUCTURAL_THRESH` — resurfacing trigger on the structural group proportion.
-- `ALLIGATOR_TIER_THRESH` — resurfacing trigger specifically on alligator cracking (higher tier).
-- `LOCALISED_THRESH` — patching trigger on the localised group (and mid-tier alligator).
-- `SURFACE_THRESH` — surface-work trigger on the max of dressing/micro group proportions.
+### Defect group classification
+Used for treatment decision tree:
 
-### Percentile treatment mode
+| Group | Defects |
+|-------|---------|
+| STRUCTURAL | Subsidence, Severe pothole, Wheel track cracking, Severe longitudinal/transverse cracking |
+| ALLIGATOR | Alligator cracking |
+| LOCALISED | Minor pothole, Moderate pothole |
+| DRESSING | Severe fretting, Defective asphalt overlay |
+| MICRO | Binder bleeding, Moderate fretting, Minor/Moderate longitudinal/transverse cracking |
+| EDGE | Left edge deterioration, Right edge deterioration |
 
-`PERCENTILE_TREATMENTS` list. Rows in the current view are sorted ascending by `priority_score`; rank position becomes `idx / (n - 1) * 100`. Worst-scoring row has rank 100.
+### Treatment assignment
 
-| Rank ≥ | Treatment |
-| --- | --- |
-| 90 | Resurfacing |
-| 75 | Surface Dressing |
-| 50 | Micro-surfacing |
-| 0 | Monitor / Patching |
+**Current client behaviour:** See [vaisala-treatment-candidates.md](vaisala-treatment-candidates.md).
+Read-time evidence-led assessment supersedes the legacy assignment below for API
+views, exports and AI. The historical functions/values remain for import provenance.
+`assign_treatment()` line 168 — thresholds are proportion of section length (0.0–1.0):
 
-Percentile mode ignores which defects are actually present; it only relies on relative severity within the current merge scale + split. Ranking is scale-scoped because raw scores at 10m, 100m, and section are not directly comparable.
+```
+structural ≥ 0.20 → Resurfacing
+alligator  ≥ 0.15 → Resurfacing
+localised  ≥ 0.05 OR alligator in [0.05, 0.15) → Patching
+max(dressing, micro) ≥ 0.05 → Surface Dressing or Micro-surfacing
+edge ≥ 0.05 → Patching
+else → Monitor / Patching
+```
 
-## Asset composite score
+### Percentile mode
 
-Location: `backend/services/scoring.py` (helpers `_rci_band`, `_ci_score`, `_defect_driver_score`, `_edi_score`, `_reactive_score`). Every threshold and point value is a Pydantic setting in `backend/config/__init__.py`; the table below shows defaults and the environment variable that overrides each.
+**Current API:** Percentiles now represent relative priority only; they never
+select treatment. Ties receive mid-ranks and singleton cohorts have no rank.
+The following table documents the retired client allocation, retained in the legacy helper.
+`assign_treatment_percentile()` line 199 — ranks sections by score within scale scope and assigns treatment by percentile band:
 
-### CI score (SCANNER)
+| Percentile rank (within scale) | Treatment |
+|-------------------------------|-----------|
+| ≥ 90 | Resurfacing |
+| ≥ 75 | Surface Dressing |
+| ≥ 50 | Micro-surfacing |
+| 0–49 | Monitor / Patching |
 
-Threshold on `avg_ci` chooses the band:
-- `CI_GREEN_THRESHOLD` (default 40) — CI below this scores in Green.
-- `CI_AMBER_THRESHOLD` (default 100) — CI at or below is Amber; above is Red.
+Ranks are scale-scoped: 10m, 100m, and section scales produce non-comparable ranks.
 
-Point ceilings for each band:
-- `CI_GREEN_MAX` (10)
-- `CI_AMBER_MAX` (25)
-- `CI_RED_MAX` (40)
+### QC Metrics
+Raw uploads calculate QC from `Coverage (total)` and `Coverage (valid)` using the reference tool's independent length-weighted averages. Completeness is average total coverage; reliability is average valid coverage divided by completeness, capped at 100%. Zero total coverage leaves reliability unknown. If total coverage is missing, valid coverage alone is the reference fallback. Bands are High ≥85%, Medium ≥50%, otherwise Low; missing values stay unknown. Coverage fractions, whole percentages above 1, and explicit percent strings are accepted (bare 1 means full coverage). API/database QC values use whole percentages. Original coverage fields and filter reasons are retained in interval extras for 10m/100m recalculation after deduplication. Urban views retain section-scale behavior. Earlier raw uploads did not retain these fields and require re-uploading the source file; SHP imports retain their precomputed whole-percent QC values.
 
-Additional `min(red_pct * 2, 20)` bonus for the share of intervals already banded red.
+---
 
-### Defect-driver score
+## What Is Not Modelled
 
-`DD_<driver>_THRESHOLD` and `DD_<driver>_POINTS` control each of the four drivers (LPV, Rutting, Cracking, Texture). Above-threshold intervals earn the point award. Independent bonuses:
+- **Deterioration / future condition:** No HDM-4 curves, no regression on multi-year CI data, no forward projection. Multi-year data is stored but not used for trend analysis.
+- **Multi-year investment planning:** No works programme by year, no sequencing logic.
+- **Budget scenario modelling:** No budget-vs-outcome comparison.
+- **Total treatment cost per section:** Unit rates (£/m²) are returned but not multiplied by section length anywhere in the application.
 
-- `DD_HIGH_RED_THRESHOLD` (0.15) → `DD_HIGH_RED_POINTS` (10)
-- `DD_HIGH_AMBER_THRESHOLD` (0.40) → `DD_HIGH_AMBER_POINTS` (5)
+---
 
-### EDI score (B and C class only)
+## Validated Benchmarks
 
-- < 20 → 0
-- 20–35 → `EDI_LOW_POINTS` (5)
-- 35–50 → `EDI_MID_POINTS` (10)
-- > 50 → `EDI_HIGH_POINTS` (15)
+These values were confirmed against real WSCC published figures. They must not be silently altered by code changes.
 
-### CVI score (unclassified roads)
-
-- Structural CI: `min(ci / 85 * 40, 40)`
-- Edge CI: `min(ci / 50 * 15, 15)`
-- Wearing-course CI: `min(ci / 60 * 10, 10)`
-
-### SCRIM score
-
-- `safety_flagged` true → 20 + `min(pct_below_il, 10)`
-- else → 0
-
-### Reactive score
-
-- Jobs in last `REACTIVE_JOB_LOOKBACK_MONTHS` (12) → `min(count * REACTIVE_JOB_POINTS, REACTIVE_JOB_MAX)`
-- Emergencies in last `REACTIVE_EMERGENCY_LOOKBACK_MONTHS` (6) → `min(count * REACTIVE_EMERGENCY_POINTS, REACTIVE_EMERGENCY_MAX)`
-- Recency bonus: +5 if the most recent defect is within 90 days.
-
-### Risk band cut points
-
-- `RISK_CRITICAL` (65)
-- `RISK_HIGH` (40)
-- `RISK_MEDIUM` (20)
-
-## Correlation analysis (frontend)
-
-Location: `frontend/src/pages/Vaisala.jsx`, Correlation tab helpers (module-scoped): `computeRanks`, `pearsonCorr`, `pct75`.
-
-- `computeRanks(values)` — Spearman ranks with tie-handling (assigns average rank across a tie group).
-- `pearsonCorr(xs, ys)` — Pearson product-moment correlation coefficient.
-- 75th-percentile helper used for the "top quartile agreement" measure between list rankings.
-
-Correlation is computed on the client from `allSections` payloads. Reported metrics are cross-list agreement between (List 1 Road Surface Condition, List 2 Asphalt Condition, List 3 PAS 2161, List 4 weighted score).
-
-## QC bands
-
-QC completeness and reliability bands are stored on `vaisala_sections` (`qc_completeness_band`, `qc_reliability_band`) but the source data does not always populate them; the `QCTab` on the frontend detects "no QC available" and hides the analysis when both columns are null across the survey. The bands are derived by a separate Vaisala QC process (upstream), not by our backend.
-
-## Scoring version
-
-`SCORING_VERSION` env var (default `1.0.0`) is stamped on every `RiskScore` row so old scores can be identified after a weight or threshold change. Bumping this string is a manual step; there is no auto-migration of historical rows.
+| Metric | Value | Published reference |
+|--------|-------|---------------------|
+| WSCC A road mean CI | 36.9 | Published 36.6 (within rounding) |
+| Red % of classified network (A/B/C) | 5.78% | Published 5.7% |
+| Vaisala RAG Red threshold | ≥ 4.0 | Derived from WSCC survey data |
+| Vaisala RAG Amber threshold | ≥ 1.8 | Derived from WSCC survey data |

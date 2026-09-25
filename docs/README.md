@@ -14,6 +14,10 @@ Living technical documentation for the Asset Intelligence platform. Regenerated 
 8. [Assumptions](./assumptions.md) — Implicit invariants relied on by the code.
 9. [Tests](./tests.md) — Existing coverage and coverage gaps.
 10. [Domain-embedded logic](./domain-embedded.md) — Magic numbers, hard-coded thresholds, duplicated constants.
+11. [Admin API](./admin-api.md) — Admin authority management, user management endpoints.
+12. [Evidence-based reporting](./evidence-reporting.md) — Evidence interpretation rules, Vaisala treatment candidates, action programme integration.
+13. [Vaisala treatment candidates](./vaisala-treatment-candidates.md) — Evidence-led candidate screening model (vaisala-candidates-v1).
+14. [Vaisala action programme](./vaisala-action-programme.md) — Deterministic severity/extent work queues, policy routing, snapshots and review audit (vaisala-programme-v2).
 
 ## Reference implementation
 

@@ -1,107 +1,125 @@
-# Database schema
+# Database
 
-PostgreSQL, managed via Alembic. All timestamps default to `now()` unless noted. Migrations live in `backend/alembic/versions/`.
+## Engine
 
-## Migration timeline
+PostgreSQL. SQLAlchemy ORM. Alembic migrations (`alembic/versions/001_initial_tables.py`).
+All tables use integer primary keys. Authority isolation enforced at query level via `authority_id` FK.
 
-| ID | File | Purpose |
-| --- | --- | --- |
-| 001 | `001_initial_tables.py` | Authorities, Users, Assets, ScannerRecord, CviRecord, ReactiveJob, RiskScore, AnalysisRun |
-| 002 | `002_raw_confirm_tables.py` | ScannerRawRecord, CviRawRecord, ScrimRecord, ReactiveJobRecord, ReactiveAggregate, NetworkAsset |
-| 003 | `003_reactive_raw_tables.py` | Reactive raw-ingest refinements |
-| 004 | `004_risk_scores_treatment.py` | RiskScore treatment and cost fields |
-| 005 | `005_network_assets.py` | NetworkAsset (`asset_id` FK, `road_class`, `length_m`) |
-| 006 | `006_vaisala_tables.py` | VaisalaSurvey / Section / Interval, defect weight sets, RAG threshold sets |
-| 007 | `007_vaisala_asset_link.py` | `VaisalaSection.asset_id` FK to `assets` |
-| 008 | `008_vaisala_intervals.py` | vaisala_intervals table (raw interval storage for merge scale) |
-| 009 | `009_vaisala_intervals_extras.py` | `vaisala_intervals.extras_json TEXT` for recovered hyperlinks + passthrough columns |
-| 010 | `010_vaisala_network_geometry.py` | `vaisala_network_geometries` + `vaisala_network_features` (GeoJSON per section_key) |
+## Primary Key Convention
 
-## Core tenancy
+NSG reference (`nsg_ref`) is the business key linking all datasets. It is NOT the DB primary key — the surrogate integer `id` is. NSG refs are normalised: leading zeros stripped on ingest, stored as plain string.
 
-```
-authorities (id PK, name, region, created_at)
-  └── users (id PK, authority_id FK, email UNIQUE, hashed_password, role, created_at)
-```
+## Tables
 
-Every user is scoped to an authority. Every downstream row is either directly `authority_id`-scoped or joined via a survey that is.
+### `authorities`
+One row per highway authority. Fields: `id`, `name`, `created_at`.
+Referenced by FK from `users`, `assets`, `network_assets`, `analysis_runs`.
 
-## Asset domain
+### `users`
+`id`, `authority_id` (FK), `email`, `hashed_password`, `is_active`, `created_at`.
 
-```
-assets (id PK, authority_id FK, nsg_ref indexed, road_name, parish, road_class, length_m, geometry, created_at)
-  ├── scanner_records         (survey_year, avg_ci, rci_band, defect %s, band %s, CI contributions)
-  ├── cvi_records             (structural/edge/wearing-course CI, flagged bools)
-  ├── reactive_jobs           (job_ref, type, defect_type, date, cost_gbp, response_category)
-  └── risk_scores             (composite, band, component scores, treatment, confidence, scoring_version)
+### `assets`
+Master asset register. One row per `(authority_id, nsg_ref)`.
 
-raw ingest sinks:
-  scanner_raw_records         UNIQUE (asset_id, survey_year, offset_direction)
-  cvi_raw_records             UNIQUE (asset_id, survey_year)
-  scrim_records
-  reactive_job_records
-  reactive_aggregates
-  network_assets              (asset_id FK, road_class, length_m, geometry)
-```
+| Column | Type | Notes |
+|--------|------|-------|
+| id | Integer PK | |
+| authority_id | FK → authorities | |
+| nsg_ref | String, indexed | business key |
+| road_name | String | |
+| parish | String | |
+| road_class | String | A \| BC \| U |
+| length_m | Float | often NULL — use network_assets.length_m for analysis |
+| geometry | Text | WKT, set from network upload |
+| created_at | DateTime | |
 
-Cascades on `assets` → `scanner_records`, `cvi_records`, `reactive_jobs`, `risk_scores` are `cascade="all, delete-orphan"`.
+Relationships: `scanner_records`, `cvi_records`, `reactive_jobs`, `risk_scores` (all cascade delete).
 
-## Vaisala DST domain
+### `scanner_records` (legacy / simple-CSV path)
+One row per upload per asset. Fields: `avg_ci`, `rci_band`, per-parameter defect pcts, amber/red lengths and pcts, CI contributions, `edi_avg`, `survey_year`. Used by legacy `POST /upload/scanner`.
 
-Weight and threshold sets — versioned so scores stay reproducible after a weight edit:
+### `scanner_raw_records` (primary / Confirm path)
+One aggregated row per `(asset_id, survey_year, offset_direction)`.
+Unique constraint: `uq_scanner_raw_asset_year_dir`.
 
-```
-vaisala_defect_weight_sets       (id PK, label, is_rag_validated)
-  └── vaisala_defect_weights     ((weight_set_id, defect_key) PK, weight, active)
+| Column | Notes |
+|--------|-------|
+| avg_ci | mean CI across all 10m intervals |
+| red_pct | % of intervals with CI ≥ 100 (stored as whole %, e.g. 4.35 = 4.35%) |
+| amber_pct | % of intervals with 40 ≤ CI < 100 |
+| green_pct | % of intervals with CI < 40 |
+| max_ci / min_ci | worst and best 10m interval |
+| rci_band | Green \| Amber \| Red — Red if red_pct > 0 |
+| offset_direction | nearside \| offside \| centre (from OFFSET column: -5 \| 5 \| other) |
 
-vaisala_rag_threshold_sets       (id PK, weight_set_id FK, red_threshold=4.0,
-                                  amber_threshold=1.8, derivation_note)
-```
+### `cvi_records` (legacy / simple-CSV path)
+Simple per-upload CVI data. BV224b flags: `structural_flagged`, `edge_flagged`, `wearing_course_flagged`.
 
-Survey and section rows:
+### `cvi_raw_records` (primary / Confirm path)
+One row per `(asset_id, survey_year)`. Unique constraint: `uq_cvi_raw_asset_year`.
 
-```
-vaisala_surveys                  (id PK, authority_id FK, source_filename, source_format,
-                                  network_key, weight_set_id FK, threshold_set_id FK,
-                                  row_count, section_count, has_weight_drift, notes JSON,
-                                  imported_at)
-  ├── vaisala_sections           UNIQUE (survey_id, section_ref)
-  │                              — section_ref, road_name, net_reference, urban_rural,
-  │                                road_class, length_m, defect_%s, priority_score,
-  │                                worst_interval_score, rag_band, treatment,
-  │                                primary/secondary defect + contribution, QC bands,
-  │                                asset_id FK → assets (nullable, ON DELETE SET NULL)
-  ├── vaisala_intervals          (survey_id, section_ref, from_m, to_m, length_m,
-  │                                interval_score, defect %s, primary_defect, road_surface_condition,
-  │                                asphalt_condition, pas2161_category, time_utc,
-  │                                extras_json TEXT)
-  │                              indexes: (survey_id), (survey_id, section_ref), (interval_score)
-  └── vaisala_rag_drift_log      (survey_id, defect_key, validated_weight, actual_weight, logged_at)
-```
+| Column | Notes |
+|--------|-------|
+| avg_ci_overall | length-weighted average CI_OVRLL |
+| max_ci_structural | max across all sub-sections — flag triggers if ≥ 85 |
+| max_ci_edge | max — flag triggers if ≥ 50 |
+| max_ci_wearingcourse | max — flag triggers if ≥ 60 |
+| pct_length_*_flagged | % of section length exceeding each threshold |
 
-Network geometry (client-supplied road network for map join and SHP export):
+### `scrim_records`
+One row per `(asset_id, survey_year)`. Unique constraint: `uq_scrim_asset_year`.
 
-```
-vaisala_network_geometries       (id PK, authority_id FK, source_filename, section_field,
-                                  feature_count, crs_wkt, is_active, created_at)
-  └── vaisala_network_features   (id PK, geometry_id FK, section_key, geometry_geojson TEXT)
-                                 indexes: (geometry_id), (geometry_id, section_key)
-```
+| Column | Notes |
+|--------|-------|
+| mean_sfc | mean SFC excluding SFC=0 rows (zero = no reading, not actual zero) |
+| min_sfc | worst SFC excluding zeros |
+| sections_below_il | count of 10m intervals with XDIF < 0 |
+| pct_below_il | % of total sections (stored as whole %) |
+| safety_flagged | True if any XDIF < 0 |
+| worst_xdif | most negative XDIF value |
+| sfct_threshold | investigatory level for this section |
+| dominant_ilct | most common ILCT code (site category) |
 
-`is_active` is toggled by the upload endpoint so only one active layer exists per authority at a time; older uploads are retained but flagged inactive.
+### `reactive_jobs` (legacy / simple-CSV path)
+Simple per-job reactive data. Fields: `job_ref`, `job_type`, `defect_type`, `job_date`, `cost_gbp`, `response_category`.
 
-## Notable constraints
+### `reactive_job_records` (primary / Confirm path)
+One row per job. Unique constraint: `uq_reactive_job_number` on `job_number`.
+Filtered on ingest to condition-relevant job types and valid statuses only.
+Fields: `priority_category` (1–5), `job_type_category` (pothole/patching/edge/drainage/other), coordinates.
 
-- `vaisala_sections.uq_vaisala_section_ref` — `(survey_id, section_ref)` unique. Interval-derived 100m rows are synthesised at request time; they are **not** persisted.
-- `vaisala_intervals` carries no unique key — a re-upload of the same file without prior deletion appends.
-- `vaisala_surveys.notes` is JSON serialised text with keys `info_meta`, `dup_groups_resolved`, `dedup_strategy` (see `POST /vaisala/upload/raw`).
-- FK deletes: `vaisala_sections.asset_id ON DELETE SET NULL`; everything else on the Vaisala side cascades from the parent survey.
+### `reactive_aggregates`
+Per `(asset_id, year)` summary rebuilt from `reactive_job_records` on every upload (DELETE+INSERT).
+Unique constraint: `uq_reactive_agg_asset_year`.
+Fields: `total_jobs_raised`, `emergency_jobs_2hr`, `urgent_jobs_24hr`, `pothole_count`, `patching_count`, `edge_count`, `drainage_count`, `days_since_most_recent_defect`, `jobs_completed`, `jobs_outstanding`, `mean_days_to_completion`, `oldest_outstanding_days`.
 
-## Fields consumed at request time (not columns)
+Rebuild is done via single SQL INSERT...SELECT (not ORM loop) — `routers/assets.py:1063–1102`.
 
-The following properties appear on API responses but are not stored:
+### `risk_scores`
+Stored scoring results (only written when `POST /analysis/run` is called). Fields: `composite_score`, `risk_band`, `ci_score`, `defect_driver_score`, `reactive_score`, `edi_score`, `dominant_defect_driver`, `treatment_recommendation`, `urgency`, `confidence`, `scoring_version`.
 
-- `chunk_label` — synthesised in `_intervals_to_100m_sections` and `_interval_to_section_dict`.
-- `extras` — parsed from `vaisala_intervals.extras_json` per request.
-- Percentile-mode `treatment` — overrides the persisted defect-pattern treatment when `treatment_mode=percentile`.
-- 100m and 10m merge scales — all rows synthesised from `vaisala_intervals` on request; only `section` scale is served directly from `vaisala_sections`.
+Note: on-demand scoring (GET /assets/) does NOT write to this table — it recomputes each request. This table is populated only during analysis runs.
+
+### `analysis_runs`
+LLM analysis results. Fields: `summary_text`, `priority_list_json`, `parameters_used`, `authority_id`. One row per triggered analysis.
+
+### `network_assets`
+Network geometry master register. One row per `(authority_id, nsg_ref)`. Unique constraint: `uq_network_asset_auth_nsg`.
+Populated from GeoPackage or zipped SHP upload. Geometry stored as WKT (EPSG:4326).
+Fields: `wsccnet`, `road_class`, `length_m`, `avg_width_m`, `area_m2`, `parish`, `locality`, `district`, `urban_rural`, `speed_limit`, `inspection_freq`, `geometry`.
+
+`network_assets.length_m` is authoritative for analysis — `assets.length_m` is often NULL.
+
+### Vaisala tables (`models/vaisala.py`)
+- `VaisalaSurvey` — one survey upload per authority
+- `VaisalaSection` — one aggregated row per section per survey
+- `VaisalaInterval` — one row per 10m (or configured) interval per survey
+
+Vaisala is authority-scoped but operates as a separate module. Vaisala sections are NOT linked to `assets` table via FK — they use `section_ref` (which may or may not match `nsg_ref`).
+
+## Key Constraints and Invariants
+
+- All percentage fields (red_pct, amber_pct, pct_below_il, etc.) are stored as **whole percentages** (e.g. 4.35 = 4.35%, not 0.0435). This is a hard invariant — past bugs caused by decimal fraction storage.
+- Vaisala percentage fields from Excel %-formatted cells: raw value 0.90 → stored as 90.0. Same whole-percentage convention.
+- NSG refs normalised: leading zeros stripped before insert.
+- Authority isolation: all queries must filter by `authority_id`. No cross-authority data leakage is possible if queries use `current_user.authority_id`.

@@ -44,6 +44,11 @@ API docs (/docs) are intentionally disabled when ENVIRONMENT=production — a 40
 - Deduplication of survey passes keys on (section, from_m, to_m) — the physical stretch — not section alone. Two passes of different length/from_m do not collapse into one.
 - Urban split always forces merge scale to "section" regardless of what scale is selected — this is a documented rule from the original brief, not a bug.
 - Percentile treatment mode ranks are scale-scoped (10m/100m/section rankings are not comparable to each other) — do not compare percentile ranks across different merge scales.
+- The legacy assign_treatment() and assign_treatment_percentile() functions remain in vaisala_scoring.py for import provenance only — they are NOT used by any current API view, export, or AI context. Current views use the evidence-led candidate model (vaisala_treatments.py) and the action programme (vaisala_action_rules.py + vaisala_programme.py).
+- Treatment candidates are screening hypotheses, not diagnoses or approved designs. They derive an action, conditional candidates, prerequisites, cautions and gaps at read time from defect evidence. Do not treat them as engineering recommendations.
+- Action programme model (vaisala-programme-v2) uses ordered routing rules in vaisala_action_rules.py. The five action categories are: No action indicated, Monitor, Engineer assessment, Further investigation, Treatment appraisal. Saved programme snapshots are immutable — client review events are append-only.
+- defect_evidence_complete (migration 019) is nullable — NULL means provenance unknown (legacy/SHP imports). True = all 18 defect readings present and valid for that interval. False = incomplete. This affects Monitor eligibility (cannot qualify from stored zeros without complete provenance) but never suppresses a structural investigation trigger.
+- Authority policies for the action programme are immutable versions — once created, a policy cannot be edited. New policy requests default to vaisala-programme-default-v2. Legacy policies without routing_rules retain legacy_v1 behaviour. QC adequacy floor is 85 and cannot be lowered.
 
 ## Validated benchmarks (do not silently alter)
 - WSCC A road mean CI: 36.9 (matches published 36.6)
@@ -56,4 +61,4 @@ Full architecture, database schema, business logic, analytical models, assumptio
 ## Subagents (.claude/agents/)
 - test-engineer — writes tests, never touches source code
 - code-reviewer — read-only review against technical-debt.md and domain-embedded.md
-- domain-reviewer — read-only review against business-logic.md and analytical-models.md. MUST be invoked after any edit to backend/services/scoring.py, backend/services/vaisala_scoring.py, or backend/services/ingestion.py, before considering that work complete.
+- domain-reviewer — read-only review against business-logic.md and analytical-models.md. MUST be invoked after any edit to backend/services/scoring.py, backend/services/vaisala_scoring.py, backend/services/vaisala_treatments.py, backend/services/vaisala_action_rules.py, backend/services/vaisala_programme.py, or backend/services/ingestion.py, before considering that work complete.

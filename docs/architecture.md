@@ -1,107 +1,101 @@
 # Architecture
 
-## Runtime topology
+## Overview
+
+Asset Intelligence Platform is a Decision Support Tool (DST) for UK local highway authorities.
+Two-tier web application: React + Vite frontend, Python + FastAPI backend, PostgreSQL database.
+AI layer uses Anthropic Claude API for narrative briefings and free-text queries.
+Deployed on Railway (production). Frontend at www.roadiq-dst.com. Backend on separate Railway domain.
+
+## Directory Structure
 
 ```
-Browser (React 18 + Vite)                    Backend (FastAPI + Uvicorn)
-────────────────────────                    ─────────────────────────
-  React Router SPA                            /auth       auth router
-  axios (JWT bearer)          HTTP JSON        /assets     assets router
-  Leaflet + OS Maps API     ──────────►       /analysis   analysis router
-                                              /vaisala    vaisala router
-                                              /health     health probe
-                                                    │
-                                                    ▼
-                                              SQLAlchemy 2.0 (ORM)
-                                                    │
-                                                    ▼
-                                              PostgreSQL (psycopg2)
-
-                                              Anthropic API ◄── services/llm.py
+asset-intelligence/
+├── backend/               ← FastAPI application root (Railway working directory)
+│   ├── main.py            ← app factory, router registration, CORS
+│   ├── config.py          ← Pydantic Settings, env var loading
+│   ├── database.py        ← SQLAlchemy engine, session factory, Base
+│   ├── dataset_schemas.py ← DatasetSchema definitions for validation layer
+│   ├── models/
+│   │   ├── asset.py           ← 12 SQLAlchemy models (see database.md)
+│   │   ├── user.py            ← User, Authority
+│   │   ├── vaisala.py         ← VaisalaSection, VaisalaInterval, VaisalaSurvey
+│   │   └── vaisala_programme.py ← VaisalaProgramme, VaisalaProgrammeItem, VaisalaProgrammeReview, VaisalaAuthorityPolicy
+│   ├── routers/
+│   │   ├── assets.py          ← /assets/* — upload, list, export, map-data, scoring
+│   │   ├── analysis.py        ← /analysis/* — AI briefing, query, stats
+│   │   ├── vaisala.py         ← /vaisala/* — Vaisala upload, view, export, treatment assessment
+│   │   ├── vaisala_programme.py ← /vaisala/surveys/{id}/programme/* — action programme, policies, snapshots, reviews
+│   │   └── auth.py            ← /auth/* — register, login, JWT
+│   ├── services/
+│   │   ├── ingestion.py       ← all data parsers (SCANNER/CVI/SCRIM/reactive/network)
+│   │   ├── scoring.py         ← standalone scoring engine (see technical-debt.md)
+│   │   ├── vaisala_scoring.py ← Vaisala DST scoring engine (scores, RAG, defect groups)
+│   │   ├── vaisala_treatments.py ← evidence-led treatment candidate screening (vaisala-candidates-v1)
+│   │   ├── vaisala_action_rules.py ← deterministic action routing rules (vaisala-programme-v2)
+│   │   ├── vaisala_programme.py ← programme generation, ranking, snapshots, review logic
+│   │   ├── vaisala_programme_exports.py ← CSV/XLSX/GeoJSON programme exports
+│   │   ├── vaisala_qc.py      ← QC metric calculation
+│   │   ├── validation.py      ← DatasetValidator, schema-first validation
+│   │   ├── llm.py             ← Anthropic SDK wrapper, prompt construction
+│   │   ├── knowledge.py       ← domain knowledge base injected into LLM system prompt
+│   │   └── auth.py            ← JWT creation, password hashing
+│   ├── schemas/           ← Pydantic request/response schemas
+│   ├── alembic/           ← database migrations
+│   └── docs/              ← this directory
+├── frontend/              ← React + Vite application
+│   ├── src/
+│   │   ├── pages/         ← Dashboard, Upload, Analysis, Vaisala, Login
+│   │   └── components/    ← shared components
+│   └── vite.config.js     ← proxy: /api → localhost:8001
+└── CLAUDE.md              ← Claude Code session context (project root)
 ```
 
-## Backend layout
+## Service Separation
 
-`backend/main.py` mounts four routers, applies CORS from `settings.cors_origins`, and enforces a 500 MB upload cap. Uvicorn is the ASGI runner. Alembic drives schema migrations.
+Designed for separation of concerns (documented in README.md, though README is stale — see database.md):
 
-| Layer | Directory | Purpose |
-| --- | --- | --- |
-| Entry | `backend/main.py` | ASGI app, middleware, router mounting, `/health` |
-| Config | `backend/config/__init__.py` | Pydantic settings, env-var-driven scoring weights |
-| DB | `backend/database.py` | SQLAlchemy engine (pool 10, overflow 20), `SessionLocal`, `Base` |
-| Auth | `backend/services/auth.py`, `backend/routers/auth.py` | bcrypt + HS256 JWT, 8-hour expiry |
-| ORM | `backend/models/{user,asset,vaisala}.py` | Declarative tables and relationships |
-| Schemas | `backend/schemas/{auth,asset,vaisala}.py` | Pydantic request/response contracts |
-| Ingestion | `backend/services/ingestion.py` | SCANNER, CVI, SCRIM, Reactive, Network parsers |
-| Validation | `backend/services/validation.py` | Column presence, unit sanity, multi-year detection |
-| Scoring | `backend/services/scoring.py` (asset), `backend/services/vaisala_scoring.py` (Vaisala DST) |
-| LLM | `backend/services/llm.py`, `backend/services/knowledge.py` | Anthropic client, cached knowledge base |
-| Routers | `backend/routers/{auth,assets,analysis,vaisala}.py` | HTTP surface |
-| Migrations | `backend/alembic/versions/00[1-10]_*.py` | Schema evolution, sequentially numbered |
+| Service | File | External dependencies |
+|---------|------|-----------------------|
+| Scoring engine | `services/scoring.py` | None (pure Python dataclasses) |
+| Vaisala scoring | `services/vaisala_scoring.py` | pandas, numpy, geopandas |
+| Vaisala treatment candidates | `services/vaisala_treatments.py` | None (pure logic over scoring output) |
+| Vaisala action rules | `services/vaisala_action_rules.py` | None (deterministic routing, no DB) |
+| Vaisala programme | `services/vaisala_programme.py` | SQLAlchemy (programme/snapshot/review persistence) |
+| Vaisala programme exports | `services/vaisala_programme_exports.py` | openpyxl, geopandas |
+| Data parsing | `services/ingestion.py` | pandas, openpyxl, geopandas |
+| Validation | `services/validation.py` | pandas |
+| LLM layer | `services/llm.py` | anthropic SDK |
+| Knowledge base | `services/knowledge.py` | None |
+| Auth | `services/auth.py` | passlib, python-jose |
 
-## Frontend layout
+`scoring.py`, `vaisala_scoring.py`, `vaisala_treatments.py`, and `vaisala_action_rules.py` have no FastAPI or SQLAlchemy imports — they are separable as standalone libraries.
 
-`frontend/src/main.jsx` renders `App.jsx`, which registers routes and wraps them in `Guard` (auth-required) or `PublicOnly` (unauthenticated-only). Global auth state lives in `context/AuthContext.jsx` and persists to `localStorage` (`ai_token`, `ai_user`).
+**Exception:** `routers/assets.py:_score_asset()` is the live production scorer. It is tightly coupled to a SQLAlchemy session. See technical-debt.md.
 
-| Concern | Location |
-| --- | --- |
-| Routing | `frontend/src/App.jsx` (BrowserRouter, 6 top-level routes) |
-| API client | `frontend/src/api/client.js` (axios + JWT interceptor + 401 redirect) |
-| Auth state | `frontend/src/context/AuthContext.jsx` (`useAuth`) |
-| Pages | `frontend/src/pages/{Login,Dashboard,Upload,Analysis,Query,Vaisala}.jsx` |
-| Shared UI | `frontend/src/components/*` (Layout, PriorityList, KPIStrip, AIBriefing, ChatInterface, DefectDriverChart, AssetDetailPanel, VaisalaSectionDetailPanel) |
-| Styling | CSS custom properties in `frontend/src/index.css` (RAG colours, spacing tokens) |
-| Env | `frontend/.env.local` — `VITE_OS_MAPS_API_KEY`, optional `VITE_API_BASE_URL` |
+## Request Flow
 
-## Router surface (current)
+```
+Browser → FastAPI router → validate (DatasetValidator) → parse (ingestion.py) → DB write
+                        → score (_score_asset, on-demand per GET) → JSON response
+                        → LLM (llm.py + knowledge.py, on POST /analysis/run)
+```
 
-### Auth
-- `POST /auth/register`
-- `POST /auth/login`
+## Authentication
 
-### Assets
-- `POST /assets/upload/scanner` (also `/scanner/raw`, `/cvi`, `/cvi/raw`, `/scrim/raw`, `/reactive`, `/reactive/raw`, `/network`)
-- `GET  /assets/`
-- `GET  /assets/export`
-- `GET  /assets/schema/aliases`
-- `GET  /assets/network-stats`
+JWT bearer tokens. Authority-scoped: every DB query filters by `current_user.authority_id`.
+`User` belongs to `Authority`. All uploaded data and scores are isolated per authority.
 
-### Analysis
-- `POST /analysis/run` — full rescoring + LLM briefing, persisted to `AnalysisRun`
-- `GET  /analysis/latest`
-- `GET  /analysis/stats`
-- `POST /analysis/query` — multi-turn LLM (uses cached `ALL_KNOWLEDGE`)
-- `POST /analysis/asset/{nsg_ref}`
-- `POST /analysis/vaisala/{section_id}`
+## Local Ports
 
-### Vaisala
-- `POST /vaisala/upload/raw` — XLSX/CSV, params `network_key`, `dedup_strategy`, `weights_json`
-- `POST /vaisala/upload/shp` — pre-scored zipped shapefile
-- `GET  /vaisala/surveys`
-- `GET  /vaisala/surveys/{id}/stats` — params `merge_scale`, `split`, `treatment_mode`
-- `GET  /vaisala/surveys/{id}/sections` — same params + `rag_band`, `treatment`, `sort_by`, `sort_dir`, `skip`, `limit`
-- `GET  /vaisala/surveys/{id}/sections/all`
-- `GET  /vaisala/surveys/{id}/export` — params include `format=csv|xlsx|shp`
-- `POST /vaisala/network-geometry/upload`
-- `GET  /vaisala/network-geometry/current`
-- `GET  /vaisala/network-geometry/features?survey_id=…`
-- `DELETE /vaisala/network-geometry/{id}`
+- Frontend: localhost:5173 (Vite dev server)
+- Backend: localhost:8001 (NOT 8000 — changed to avoid local port collision)
+- Frontend proxies `/api/*` to `http://localhost:8001`
 
-Auth is enforced via `get_current_user` dependency injection everywhere except `/auth/*` and `/health`.
+## Deployment
 
-## Request lifecycle (representative)
+Railway builds from GitHub `main` branch only. Local changes have no effect on production until committed and pushed. Procfile runs `alembic upgrade head` before starting the server. Backend memory limit raised to 8 GB (from Railway 1 GB default) after OOM crash during large Vaisala XLSX upload. API docs (`/docs`) disabled in production (`ENVIRONMENT=production`).
 
-`POST /vaisala/upload/raw` with an XLSX file:
+## AI Layer
 
-1. Middleware enforces auth (`Authorization: Bearer <jwt>`) via `get_current_user`.
-2. Router validates `network_key`, `dedup_strategy`, optional `weights_json`.
-3. Body is buffered up to 500 MB and dispatched to `parse_raw_xlsx` (or `parse_raw_csv`).
-4. `parse_raw_xlsx` runs: openpyxl hyperlink recovery → `_attach_extras_json_column` → optional dedup → `_aggregate_intervals` → `detect_weight_drift` → `_parse_info_sheet`.
-5. Router persists `VaisalaSurvey`, bulk-inserts sections and intervals, records any `VaisalaRagDriftLog` rows.
-6. Response returns `VaisalaUploadResult` (survey id, RAG summary, drift details, dup count, info meta, flattened-link warnings).
-
-## Deployment assumptions
-
-- Single-process Uvicorn with `--reload` for development. Production topology not codified; `settings.environment == "production"` merely raises log level to WARNING.
-- Frontend served from Vite dev server on port 5173 in development. Production build is not wired into the backend; a reverse proxy is assumed.
-- Database is PostgreSQL; the `psycopg2-binary` driver is the only DB driver in `requirements.txt`.
+`services/llm.py` wraps Anthropic SDK. System prompt = role definition + `ALL_KNOWLEDGE` from `services/knowledge.py` (domain knowledge base). Dataset context passed as user message. Prompt caching applied to system prompt and asset context. Multi-turn query via `POST /analysis/query`. Single analysis run persisted as `AnalysisRun` row.

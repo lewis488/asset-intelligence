@@ -1,75 +1,172 @@
-# Domain-embedded logic
+# Domain-Embedded Knowledge
 
-Constants, thresholds, and decisions currently baked into code that would be better lifted into config or a shared source of truth.
+UK highways engineering knowledge embedded directly in code, not in configuration or documentation. Any reviewer or AI agent modifying these files must understand the domain rationale or risk breaking validated outputs.
 
-## Vaisala DST — hard-coded in `backend/services/vaisala_scoring.py`
+## SCANNER: CI Band Thresholds (UKPMS Standard)
 
-### RAG thresholds (fixed, evidence-derived — see priority_dst.html rationale)
+**Location:** `services/ingestion.py:664–669`, `services/scoring.py:32–40`
 
-- Red ≥ 4.0
-- Amber ≥ 1.8
-- Green < 1.8
+```python
+Green:  CI < 40
+Amber:  40 ≤ CI < 100
+Red:    CI ≥ 100
+```
 
-Exposed as module-scope constants; not configurable via env vars. Rationale documented in the ported comments (they were derived against real WSCC survey data; changing them silently would break RAG comparability across surveys).
+These are UKPMS (UK Pavement Management System) standard thresholds used across all UK highways authorities. They are not tunable per authority — they define the classification framework itself. `ci_green_threshold` and `ci_amber_threshold` in config only affect `scoring.py` (not the live production scorer `_score_asset()`).
 
-### Treatment thresholds (defect-pattern mode)
+## SCANNER: Red Band Definition
 
-Named constants at module scope (`STRUCTURAL_THRESH`, `ALLIGATOR_TIER_THRESH`, `LOCALISED_THRESH`, `SURFACE_THRESH`). Same rationale as the RAG cutoffs: derived alongside `RAG_VALIDATED_WEIGHTS`, treated as part of the "validated" set.
+**Location:** `services/ingestion.py:664`, `services/scoring.py:78`, `routers/assets.py:280`
 
-### Percentile treatment band cutoffs
+Red band = `red_pct > 0` (any 10m intervals scoring CI ≥ 100), NOT `avg_ci ≥ 100`.
 
-`PERCENTILE_TREATMENTS` list literal: 90 / 75 / 50 / 0. Directly matches the priority_dst.html `DEFAULT_TREATMENTS`. No env override.
+Engineering rationale: a section's average CI rarely reaches 100 even when it contains structurally failed intervals. A section averaging CI = 36 across 100 intervals can have 2 intervals at CI ≥ 100 (red_pct = 2%). Using avg_ci ≥ 100 as the red threshold would classify almost no sections as red — it would systematically understate structural risk.
 
-### Defect group membership
+This convention matches WSCC reporting and UK published statistics (validated: 5.78% red matches WSCC published 5.7%).
 
-`STRUCTURAL_KEYS`, `LOCALISED_KEYS`, `DRESSING_KEYS`, `MICRO_KEYS`, `EDGE_KEYS`, `ALLIGATOR_KEY` — the mapping from raw defect labels to grouped treatment inputs. Also mirrors priority_dst.html but expressed in code rather than data.
+## CVI: BV224b Thresholds
 
-### Weight set
+**Location:** `services/ingestion.py:382`, `services/ingestion.py:868`
 
-`RAG_VALIDATED_WEIGHTS` — dict literal. See `analytical-models.md` for the table. Not easy to override at runtime (a caller can pass `weights_json`, but only that specific request uses them; there is no admin UI or persisted alternative weight set beyond the drift log).
+```python
+structural_ci ≥ 85  → structural_flagged
+edge_ci       ≥ 50  → edge_flagged
+wearing_course_ci ≥ 60  → wearingcourse_flagged
+```
 
-### Column candidate lists
+These are DfT BV224b Local Transport Performance Indicator thresholds. They define the point at which a CVI domain assessment requires intervention. Fixed nationally — not configurable per authority.
 
-`NETWORK_CONFIGS` — per-network dictionary of candidate column names for section, road name, urban/rural, road class, net reference. Also declares capabilities (`has_urbrur`, `has_rsc`). New networks require a code change.
+CVI CI direction: higher = worse (same as SCANNER). Both increase toward failure.
 
-### Passthrough keys for extras
+## CVI: Max-Not-Average for Domain Flags
 
-`_EXTRA_PASSTHROUGH_KEYS` — hard list of column names copied into `extras_json` when found (Time UTC variants, Lat/Long variants, Video/Map links). New passthrough keys require a code change.
+**Location:** `services/ingestion.py:860–871`
 
-## Asset scoring — `backend/services/scoring.py`
+Domain CIs use `max()` across sub-sections, not length-weighted average. Engineering rationale: BV224b methodology requires that any sub-section exceeding the threshold triggers the flag — the worst point drives intervention need. Length-weighting the CI would allow a long Green sub-section to mask a short but critical Structural sub-section.
 
-The bulk of thresholds and point awards *are* config-driven (see [analytical-models.md](./analytical-models.md)). Exceptions still in code:
+## SCRIM: SFC=0 Exclusion
 
-- CVI sub-score divisors (`ci / 85 * 40`, `ci / 50 * 15`, `ci / 60 * 10`) — magic denominators in `compute_cvi_score`.
-- Reactive recency bonus (+5, 90-day window) — magic numbers in `_reactive_score`.
-- Treatment string names (`"Resurfacing"`, `"Micro-surfacing"`, ...) — repeated across `scoring.py`, `vaisala_scoring.py`, and the frontend legend. No single source of truth.
+**Location:** `services/ingestion.py:973–978`
 
-## Routers — `backend/routers/`
+```python
+sfc_valid = grp["SFC"][grp["SFC"] > 0].dropna()
+```
 
-- `_LINK_HDR_PATTERN` (regex for URL-shaped export columns) and `RAG_FILL`, `TREATMENT_FILL` (openpyxl ARGB fills) live in `routers/vaisala.py`. Duplicated conceptually with the frontend colour tokens.
-- Upload cap `_MAX_UPLOAD_BYTES = 500 * 1024 * 1024` in `routers/assets.py`. Fine as an operational choice but not configurable.
-- Auth JWT `_EXPIRE_HOURS = 8` in `services/auth.py`.
+Engineering rationale: Confirm SCANNER exports contain SFC=0 for intervals where the SCRIM vehicle did not record a reading (e.g., junctions, lane changes). SFC=0 is not actual zero skid resistance — including these rows would produce falsely low mean/min statistics and potentially trigger false safety flags.
 
-## Frontend — `frontend/src/pages/Vaisala.jsx`
+## SCRIM: XDIF as Safety Flag
 
-- `RAG_COLOUR` object literal.
-- `MAP_TREATMENT_COLOURS` object literal.
-- `MERGE_SCALES`, `SPLITS`, `TREATMENT_MODES` labels + descriptions.
-- Score-to-colour gradient (`scoreToColour`) uses fixed anchor colours `#7a9b6e → #d9a51c → #c0432f` and a 0–10 domain assumption.
-- Symbology legend labels are inline strings.
+**Location:** `services/ingestion.py:981–986`
 
-## What "shared source of truth" would look like
+```python
+safety_flagged = sections_below_il > 0
+```
 
-A minimal cleanup:
+XDIF = measured SFC − SFCT (site-specific investigatory level). XDIF < 0 means skid resistance is below the investigatory level defined in DMRB HD28/08. Any section with XDIF < 0 requires investigation and potential remedial treatment. Even one interval below IL triggers the flag — same max-not-average rationale as CVI.
 
-1. Emit a small JSON manifest at build time from a Python source-of-truth (e.g. `backend/domain_constants.py`).
-2. Frontend imports the same JSON via a Vite alias or `?raw` import.
-3. Every colour, band label, treatment name, and merge-scale key stays in one file.
+ILCT (Investigatory Level Category Type) defines the site category (e.g., motorway, roundabout, gradient, pedestrian crossing). Each category has a different SFCT threshold from the DMRB lookup table.
 
-Alternative: keep them independent but add a doc-level assertion (a linter or a CI test) that the frontend and backend maps agree on band names.
+## SCANNER: Defect Driver Analysis (scoring.py)
 
-## Not domain-embedded — call out for clarity
+**Location:** `services/scoring.py:99–141`
 
-- CI, defect-driver, EDI, reactive scoring thresholds are already env-driven via `backend/config/__init__.py`. Nothing to lift there.
-- Frontend axios base URL is env-driven (`VITE_API_BASE_URL`).
-- Scoring version tag is env-driven (`SCORING_VERSION`), stamped on every persisted `RiskScore` row.
+CI contribution proportions from the SCANNER survey drive treatment selection:
+
+```
+LPV (Longitudinal Profile Variance) dominant (> 40%)   → +15 pts — structural roughness, inlay/reconstruction
+Rutting dominant (> 35%)                                → +15 pts — structural deformation, inlay/reconstruction
+Cracking dominant (> 40%)                              → +12 pts — surface/structural, investigate
+Texture dominant (> 50%)                               → +8 pts  — surface treatment sufficient
+```
+
+Engineering rationale: CI proportions reveal which distress mechanism drives deterioration. LPV and Rutting indicate structural failure (expensive treatment: inlay or reconstruction). Texture indicates surface failure only (cheap treatment: surface dressing). This drives 5–10× cost difference in treatment selection.
+
+Band penetration bonuses (red_pct > 15% → +10 pts, amber_pct > 40% → +5 pts) reflect extent — a section with widespread red intervals is more urgent than one with a single bad interval.
+
+**Note:** This logic is in `scoring.py` which is NOT the live production scorer. The live scorer (`_score_asset()`) does not implement defect driver analysis. See technical-debt.md.
+
+## Vaisala: 18 Defect Weights (RAG-Validated)
+
+**Location:** `services/vaisala_scoring.py:25–44`
+
+Weights reflect engineering severity of each defect type:
+
+| Defect | Weight | Rationale |
+|--------|--------|-----------|
+| Subsidence | 10 | Structural failure, safety risk, expensive |
+| Severe pothole | 10 | Immediate safety risk, liability |
+| Moderate pothole | 7 | Active deterioration, near-term intervention |
+| Alligator cracking | 8 | Structural fatigue pattern, resurfacing trigger |
+| Binder bleeding | 5 | Surface safety, skid resistance risk |
+| Wheel track cracking | 6 | Structural — trafficking loads exceeded capacity |
+| Severe longitudinal cracking | 6 | Structural — edge or lane break |
+| Severe transverse cracking | 6 | Thermal or reflective cracking through structure |
+| Defective asphalt overlay | 4 | Surface layer failure |
+| Severe fretting | 4 | Aggregate loss, accelerating deterioration |
+| Minor/Moderate pothole | 4/— | Safety, customer perception |
+| Left/Right edge deterioration | 3 each | Edge break, progressive structural loss |
+| Moderate longitudinal/transverse | 3 each | Moderate structural signal |
+| Moderate fretting | 2 | Early surface degradation |
+| Minor cracking types | 1 each | Early warning, no immediate intervention |
+
+These weights were fixed through calibration against real WSCC survey data to produce the validated RAG thresholds. Weights and thresholds are coupled — changing one invalidates the other.
+
+## Vaisala: RAG Threshold Derivation
+
+**Location:** `services/vaisala_scoring.py:49–53`
+
+```
+Red ≥ 4.0: median score of Resurfacing-triggering sections was 5.46,
+            90th percentile 3.72. Threshold set at 4.0.
+Amber ≥ 1.8: separates any-treatment-needed roads from Monitor-only
+              with low false-positive rate.
+```
+
+Statistical derivation against real WSCC Vaisala survey data. These are the only scoring thresholds in the codebase that are intentionally NOT env-configurable. Reason: comparability of RAG bands across surveys and authorities requires stable thresholds. Configurable thresholds would make RAG band counts meaningless for year-on-year comparison.
+
+## Vaisala: PAS 2161 Category
+
+**Location:** `services/vaisala_scoring.py:265`
+
+PAS 2161 (published by BSI) defines road surface condition categories for visual assessment. Column name varies across export formats:
+- XLSX: "PAS2161 Category" or "PAS 2161"
+- SHP: "PAS2161" or "PAS 2161 RCM category" or "PAS 2161 RCM Category"
+
+Alias-based matching handles this. Single hardcoded string lookup would miss one or more variants.
+
+## Treatment Selection Engineering Basis
+
+**Location:** `routers/assets.py:145–213`
+
+The SCANNER-based treatment logic encodes standard UK highways treatment selection:
+
+- `Inlay / reconstruction` at high red_pct: when >15% of section length is at structural failure threshold, patching or surface treatment is ineffective — structural intervention required.
+- `Thin surfacing` for moderate amber penetration: thin AC overlay where structure is sound but surface is failing.
+- `Surface dressing / micro-asphalt` for low amber: preventive surface treatment — cheapest intervention, effective only on structurally sound pavements.
+- `Investigate — reactive masking condition` for Green + high reactive count: SCANNER shows Green condition but frequent potholes suggest the survey may be outdated or the condition is deteriorating rapidly between survey cycles.
+
+## Reactive Job Filtering: Engineering Rationale
+
+**Location:** `services/ingestion.py:1026–1033`
+
+Only condition-relevant job types are ingested as condition signals:
+- Potholes (CWAY): direct structural failure indicator
+- Patching (CWAY): repeat patching = chronic deterioration
+- Verge repairs / Kerb & Edge works: edge-break progression
+- Covers & Gullies (CWAY): drainage failure affecting structure
+
+Excluded: streetlighting, signs, marking, drainage maintenance, bridges, structures. These do not indicate carriageway deterioration and would dilute the reactive signal.
+
+## EDI (Edge Deterioration Index) — B+C Roads Only
+
+**Location:** `services/scoring.py:144–154`, `services/ingestion.py:121–122`
+
+EDI is a SCANNER-derived measure of edge break on B and C roads. It is absent from A road SCANNER sheets (different survey protocol). The parser detects EDI column by name regardless of group (`if "EDI" in col_u`). EDI scoring contributes 0–15 pts in `scoring.py` (not in live `_score_asset()`).
+
+## Recency Weighting in Reactive Scoring
+
+**Location:** `services/scoring.py:157–177`
+
+Reactive scoring looks back 12 months for job frequency and 6 months for emergency jobs. Recency-weighted because older reactive jobs have reduced relevance to current condition — a patching blitz 18 months ago may reflect a programme now complete.
+
+In `_score_asset()` the equivalent logic uses `days_since_most_recent_defect < 90` (hardcoded 90 days) for the recency bonus. This is simpler but loses the frequency-in-window nuance of `scoring.py`.
