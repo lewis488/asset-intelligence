@@ -7,7 +7,7 @@ import pytest
 
 from services.vaisala_scoring import parse_raw_csv, parse_raw_xlsx
 from routers.vaisala import _interval_to_section_dict, _intervals_to_100m_sections
-from test_admin import api
+from test_evidence_reporting import api
 
 
 def test_raw_qc_survives_upload_and_scaled_views():
@@ -81,3 +81,30 @@ def test_aliases_and_mixed_missing_coverage_use_independent_weights():
     grouped = _intervals_to_100m_sections(intervals, 1)[0]
     assert grouped['qc_completeness_pct'] == section['qc_completeness_pct']
     assert grouped['qc_reliability_pct'] == section['qc_reliability_pct']
+
+
+def test_local_flags_and_nested_defects_survive_standard_exports(api):
+    from services.vaisala_scoring import RAG_VALIDATED_WEIGHTS
+    from openpyxl import load_workbook
+    client, headers, _ = api
+    frame = pd.DataFrame([dict(NSGNO='123', WSCCNET='D1/2', Length=10,
+        **{'From meters': 180, 'To meters': 190, 'Coverage (total)': 1, 'Coverage (valid)': 1},
+        **{k: .002 if k == 'Subsidence' else 0 for k in RAG_VALIDATED_WEIGHTS})])
+    stream = io.BytesIO()
+    frame.to_excel(stream, index=False)
+    response = client.post('/vaisala/upload/raw?network_key=wscc', headers=headers['manager'],
+        files={'file': ('locations.xlsx', stream.getvalue(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')})
+    assert response.status_code == 201, response.text
+    survey = response.json()['survey_id']
+    for scale in ('section', '10m', '100m'):
+        response = client.get(f'/vaisala/surveys/{survey}/export?format=xlsx&merge_scale={scale}', headers=headers['manager'])
+        assert response.status_code == 200, response.text
+        wb = load_workbook(io.BytesIO(response.content))
+        if scale == 'section':
+            local = list(wb['Local defect review'].values)
+            assert local[1][1] == 'Subsidence'
+            assert local[1][3:6] == ('D1/2', 180, 190)
+        else:
+            values = list(wb['Priority List'].values)
+            column = values[0].index('defect_proportions')
+            assert json.loads(values[1][column])['Subsidence'] == .2

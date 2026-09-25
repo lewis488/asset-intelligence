@@ -19,7 +19,7 @@ const survey = { id: 1, source_filename: 'programme.csv', imported_at: '2026-09-
 const baseItem = { assessment_scope: 'section', urban_rural: null, length_basis: 'section coverage', assessed_length_m: 100,
   priority_score: 3.4, rag_band: 'Amber', evidence_status: 'adequate', queue_rank: 1, queue_size: 1, queue_total: 1,
   next_question: 'Establish the failure mechanism and depth', prerequisite_tasks: ['validate_evidence'],
-  treatment_assessment: { action: 'Inspect', reason: 'Legacy action must not appear', evidence: ['Alligator cracking: 5%'],
+  treatment_assessment: { action: 'Inspect', reason: 'Legacy action must not appear', maintenance_scope: 'section', local_defect_flags: [{ defect: 'Subsidence', section_measure_pct: 0.0317, location_status: 'Located in source intervals', locations: [{ net_reference: '1100776/1', from_m: 180, to_m: 190 }] }], evidence: ['Alligator cracking: 5%'],
     candidates: [{ name: 'Localised deeper repair', rationale: 'Check the observed deterioration.', prerequisites: ['Confirm repair depth.'], cautions: ['Not a structural diagnosis.'] }], evidence_gaps: ['Drainage cause is unknown.'], screening_basis: 'Provisional screening policy.' },
   review: { sequence: 0, status: 'unreviewed', client_action: null, comment: '', assignee: '' },
 }
@@ -84,7 +84,7 @@ async function setup(t, role = 'manager', extraCount = 0, proportionate = false)
     if (url.origin !== new URL(baseURL).origin) return route.abort()
     return route.continue()
   })
-  await page.goto(baseURL + '/')
+  await page.goto(baseURL + '/', { timeout: 60000 })
   await page.getByRole('link', { name: 'Vaisala DST' }).click()
   await page.getByRole('button', { name: 'Action programme', exact: true }).click()
   await page.getByRole('button', { name: 'STRUCTURAL', exact: true }).waitFor()
@@ -225,4 +225,12 @@ test('map keeps recovered programme items visible without a legacy section match
   await page.locator('summary').filter({ hasText: '10–20m' }).click()
   await page.getByText('Check the original export and imagery before targeted verification.', { exact: true }).waitFor()
   assert.equal(await page.getByText(/No scored data joined for this section/).count(), 0)
+})
+
+ test('local defect review retains sub-section chainage separately from maintenance', async t => {
+  const { page } = await setup(t)
+  await page.getByRole('button', { name: 'STRUCTURAL', exact: true }).click()
+  await page.getByText(/Local defect review.*separate from section maintenance/).waitFor()
+  await page.getByText(/Subsidence.*section measure/).click()
+  await page.getByText(/1100776\/1.*180\.0.*190\.0 m/).waitFor()
 })

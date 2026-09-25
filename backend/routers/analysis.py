@@ -459,11 +459,20 @@ def vaisala_section_narrative(
     import json
     from services.vaisala_programme import programme_item
     from routers.vaisala_programme import _policy
-    item = programme_item({**{key: getattr(section, key, None) for key in ASSESSMENT_INPUTS},
+    source = {**{key: getattr(section, key, None) for key in ASSESSMENT_INPUTS},
                            'id': section.id, 'section_ref': section.section_ref,
                            'net_reference': section.net_reference,
-                           'length_m': section.length_m, 'assessment_scope': 'section'},
-                          survey_id=survey.id, policy=_policy(db, survey.authority_id))
+                           'worst_interval_score': section.worst_interval_score,
+                           'length_m': section.length_m, 'assessment_scope': 'section'}
+    from services.vaisala_section_appraisal import attach_local_locations
+    from models.vaisala import VaisalaInterval
+    intervals = db.query(VaisalaInterval).filter_by(survey_id=survey.id, section_ref=section.section_ref).all()
+    attach_local_locations([source], [dict(id=iv.id, section_ref=iv.section_ref,
+        net_reference=iv.net_reference, from_m=iv.from_m, to_m=iv.to_m,
+        interval_score=iv.interval_score, primary_defect=iv.primary_defect,
+        primary_defect_contribution=iv.primary_defect_contribution, extras_json=iv.extras_json)
+        for iv in intervals])
+    item = programme_item(source, survey_id=survey.id, policy=_policy(db, survey.authority_id))
     assessment = item['treatment_assessment']
     parts.append('Structured treatment assessment (whole section): ' + json.dumps(assessment))
     parts.append('Deterministic action programme (whole-section preview, not a saved client decision): ' + json.dumps({

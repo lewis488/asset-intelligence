@@ -118,17 +118,17 @@ def test_existing_survey_candidates_match_api_modes_exports_and_ai(api, ai_reque
     ranked = client.get(base + '/sections?treatment_mode=percentile', headers=headers['manager']).json()['sections'][0]
     assert normal['treatment_assessment'] == ranked['treatment_assessment']
     assert normal['treatment'] != 'Resurfacing'
-    assert normal['recommended_action'] == 'Engineer assessment'
+    assert normal['recommended_action'] == 'Validate evidence / further survey'
     assert normal['rag_band'] == 'Red' and normal['priority_score'] == 4.5
     export = client.get(base + '/export?treatment_mode=percentile', headers=headers['manager'])
     frame = pd.read_csv(io.StringIO(export.text))
-    assert frame['Next action'].iloc[0] == 'Engineer assessment'
-    assert 'Resurfacing' not in frame['Conditional candidates'].iloc[0]
+    assert frame['Next action'].iloc[0] == 'Validate evidence / further survey'
+    assert frame['Conditional candidates'].iloc[0] == 'No candidate selected'
     assert 'structural' in frame['Evidence gaps'].iloc[0].lower()
     assert 'Structural Defect Proportion (%)' in frame.columns
     workbook = client.get(base + '/export?format=xlsx', headers=headers['manager'])
     assert workbook.status_code == 200
-    assert pd.read_excel(io.BytesIO(workbook.content))['Next action'].iloc[0] == 'Engineer assessment'
+    assert pd.read_excel(io.BytesIO(workbook.content))['Next action'].iloc[0] == 'Validate evidence / further survey'
     response = client.post(f'/analysis/vaisala/{section_id}', headers=headers['manager'])
     assert response.status_code == 200
     context = ai_requests[-1]['messages'][0]['content']
@@ -145,7 +145,7 @@ def test_existing_survey_candidates_match_api_modes_exports_and_ai(api, ai_reque
     mapped = client.get(f'/vaisala/network-geometry/features?survey_id={survey_id}&treatment_mode=percentile', headers=headers['manager'])
     props = mapped.json()['features'][0]['properties']
     assert props['treatment_assessment'] == normal['treatment_assessment']
-    assert props['programme_items'][0]['recommended_action'] == 'engineer_assessment'
+    assert props['programme_items'][0]['recommended_action'] == 'evidence_validation'
     assert props['programme_items'][0]['priority_score'] == 4.5
     shp = client.get(base + '/export?format=shp', headers=headers['manager'])
     assert shp.status_code == 200, shp.text[:500] if shp.status_code != 200 else ''

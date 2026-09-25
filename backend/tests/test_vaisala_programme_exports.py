@@ -24,7 +24,7 @@ def test_csv_unicode_formula_protection_full_payload_and_review():
     data = export_programme(payload, format="csv")
     rows = list(csv.DictReader(io.StringIO(data.decode("utf-8-sig"))))
     assert len(rows) == 2
-    structural = next(r for r in rows if r["recommended_action"] == "engineer_assessment")
+    structural = next(r for r in rows if r["section_ref"].startswith("'=HYPERLINK"))
     assert structural["section_ref"].startswith("'=")
     assert structural["road_name"] == " École road"
     # Locate review independently of engine display ordering.
@@ -39,7 +39,7 @@ def test_xlsx_five_action_sheets_reconcile_and_preserve_empty_queues():
     payload = programme()
     payload["export_filters"] = {"filtered": True, "search": "B"}
     workbook = load_workbook(io.BytesIO(export_programme(payload, format="xlsx")))
-    assert workbook.sheetnames == ["Summary", "All items", "Engineer assessment", "Evidence validation", "Treatment appraisal", "Monitor", "No action indicated", "Methodology"]
+    assert workbook.sheetnames == ["Summary", "All items", "Engineer assessment", "Evidence validation", "Treatment appraisal", "Monitor", "No action indicated", "Methodology", "Local defect review"]
     assert workbook["All items"].max_row - 1 == 2
     assert sum(workbook[name].max_row - 1 for name in workbook.sheetnames[2:7]) == 2
     assert workbook["Monitor"].max_row == 1
@@ -49,3 +49,17 @@ def test_xlsx_five_action_sheets_reconcile_and_preserve_empty_queues():
     summary = dict(workbook["Summary"].values)
     assert summary["Export scope"] == "filtered"
     assert '"search": "B"' in summary["Filters"]
+
+
+def test_large_local_location_list_is_not_truncated_in_excel():
+    payload = programme()
+    item = payload['items'][0]
+    flags = [dict(defect='Subsidence', location_status='Located', locations=[
+        dict(net_reference='D1/1', from_m=i * 10, to_m=(i + 1) * 10) for i in range(1000)])]
+    item['treatment_assessment']['local_defect_flags'] = flags
+    workbook = load_workbook(io.BytesIO(export_programme(payload, format='xlsx')))
+    assert workbook['Local defect review'].max_row == 1001
+    parts = [row[3] for row in list(workbook['Evidence continuation'].values)[1:]
+             if row[0] == item['item_key'] and row[1] == 'treatment_assessment']
+    recovered = json.loads(''.join(parts))
+    assert recovered['local_defect_flags'] == flags

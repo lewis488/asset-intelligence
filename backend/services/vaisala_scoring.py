@@ -281,8 +281,8 @@ def _aggregate_intervals(df: pd.DataFrame, network_key: str, weights: dict[str, 
     asphalt_col   = _find_col(cols, ["ASPHALT", "Asphalt condition", "Asphalt Condition"])
     asphalt_class_col = _find_col(cols, ["ASPH_CLSS", "Asphalt condition class"])
     pas_col       = _find_col(cols, ["PAS2161", "PAS2161 Category", "PAS 2161", "PAS 2161 RCM category", "PAS 2161 RCM Category"])
-    from_col      = _find_col(cols, ["Chainage Start", "ChaStart", "From", "FROM", "StartCH", "STARTM", "Start", "from_m"])
-    to_col        = _find_col(cols, ["Chainage End", "ChaEnd", "To", "TO", "EndCH", "ENDM", "End", "to_m"])
+    from_col      = _find_col(cols, ["From meters", "From metres", "Chainage Start", "ChaStart", "From", "FROM", "StartCH", "STARTM", "Start", "from_m"])
+    to_col        = _find_col(cols, ["To meters", "To metres", "Chainage End", "ChaEnd", "To", "TO", "EndCH", "ENDM", "End", "to_m"])
     time_col      = _find_col(cols, ["Time UTC", "Time (UTC)", "TIME_UTC", "Date Time", "DateTime", "Timestamp"])
 
     col_map = _build_col_map(cols)
@@ -519,8 +519,8 @@ def _dedup_by_latest_pass(df: pd.DataFrame, network_key: str) -> tuple[pd.DataFr
     section_col = _find_col(cols, cfg["section_keys"])
     if not section_col and network_key == "wscc":
         section_col = _find_col(cols, ["WSCCNET"])
-    from_col = _find_col(cols, ["Chainage Start", "ChaStart", "From", "FROM", "StartCH", "STARTM", "Start", "from_m"])
-    to_col   = _find_col(cols, ["Chainage End", "ChaEnd", "To", "TO", "EndCH", "ENDM", "End", "to_m"])
+    from_col = _find_col(cols, ["From meters", "From metres", "Chainage Start", "ChaStart", "From", "FROM", "StartCH", "STARTM", "Start", "from_m"])
+    to_col   = _find_col(cols, ["To meters", "To metres", "Chainage End", "ChaEnd", "To", "TO", "EndCH", "ENDM", "End", "to_m"])
     time_col = _find_col(cols, ["Time UTC", "Time (UTC)", "TIME_UTC", "Date Time", "DateTime", "Timestamp"])
     if not (section_col and from_col and to_col):
         return df, 0
@@ -531,6 +531,14 @@ def _dedup_by_latest_pass(df: pd.DataFrame, network_key: str) -> tuple[pd.DataFr
         + "|" + df[from_col].astype(str)
         + "|" + df[to_col].astype(str)
     )
+    net_col = _find_col(cols, cfg["netref_keys"]) if cfg["netref_keys"] else None
+    if net_col:
+        df["__key"] += "|" + df[net_col].fillna("").astype(str)
+    # Unknown extents cannot establish repeated observations of one stretch.
+    starts = pd.to_numeric(df[from_col], errors="coerce")
+    ends = pd.to_numeric(df[to_col], errors="coerce")
+    invalid = starts.isna() | ends.isna() | (starts < 0) | (ends <= starts)
+    df.loc[invalid, "__key"] = [f"unknown-row-{i}" for i in np.flatnonzero(invalid)]
     group_sizes = df.groupby("__key").size()
     dup_groups = int((group_sizes > 1).sum())
     if dup_groups == 0:
@@ -633,7 +641,8 @@ def _attach_extras_json_column(df: pd.DataFrame, link_col_names: list[str]) -> p
         actual = lower.get(k.lower())
         if actual and actual not in extras_cols:
             extras_cols.append(actual)
-    if not extras_cols:
+    defect_columns = _build_col_map(df.columns.tolist())
+    if not extras_cols and not defect_columns:
         df = df.copy()
         df[_EXTRAS_COL] = ""
         return df
@@ -641,6 +650,8 @@ def _attach_extras_json_column(df: pd.DataFrame, link_col_names: list[str]) -> p
     import json as _json
     import math as _math
     arrs = {c: df[c].tolist() for c in extras_cols}
+    defect_arrs = {key: pd.to_numeric(df[col], errors='coerce').to_numpy()
+                   for key, col in defect_columns.items()}
     out: list[str] = []
     for i in range(len(df)):
         d: dict = {}
@@ -653,6 +664,9 @@ def _attach_extras_json_column(df: pd.DataFrame, link_col_names: list[str]) -> p
             if not isinstance(v, (str, int, float, bool)):
                 v = str(v)
             d[c] = v
+        d['defect_proportions'] = {
+            key: (float(values[i]) * 100 if np.isfinite(values[i]) and 0 <= values[i] <= 1 else None)
+            for key, values in defect_arrs.items()}
         out.append(_json.dumps(d, ensure_ascii=False) if d else "")
     df = df.copy()
     df[_EXTRAS_COL] = out
@@ -689,6 +703,8 @@ def _parse_info_sheet(file_bytes: bytes) -> dict:
         "from_date": _match(r"From date:\s*([^\s(]+)"),
         "to_date":   _match(r"To date:\s*([^\s(]+)"),
         "multiple_drives": _match(r"Multiple drives:\s*'?([^'\n]+)'?"),
+        "defect_aggregation": _match(r"Defect aggregation(?: method)?:\s*([^\n]+)"),
+        "score_aggregation": _match(r"Score aggregation(?: method)?:\s*([^\n]+)"),
         "interval_length": _match(r"Segment interval length:\s*(\d+)"),
     }
 

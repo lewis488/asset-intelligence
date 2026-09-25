@@ -21,6 +21,8 @@ def observed(defects=None, **changes):
 
 
 def assess(row, **policy):
+    # V2 remains the local interval routing model; section appraisal has its own suite.
+    row = {**row, "assessment_scope": "10m"}
     before = copy.deepcopy(row)
     result = programme_item(row, survey_id=1, policy={**DEFAULT_POLICY, **policy})
     assert row == before
@@ -120,7 +122,7 @@ def test_aggregation_rounding_does_not_create_false_conflict():
 
 def test_legacy_policy_keeps_original_routing():
     from services.vaisala_programme import LEGACY_DEFAULT_POLICY
-    result = programme_item(observed({'Minor longitudinal cracking': .2}), survey_id=1, policy=LEGACY_DEFAULT_POLICY)
+    result = programme_item(observed({'Minor longitudinal cracking': .2}, assessment_scope='10m'), survey_id=1, policy=LEGACY_DEFAULT_POLICY)
     assert result['recommended_action'] == 'engineer_assessment'
     assert result['policy_version'] == 'vaisala-programme-default-v1'
 

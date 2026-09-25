@@ -19,7 +19,7 @@ def test_condition_views_share_programme_actions_and_rule_diagnostics(api, surve
     assert stats['action_counts'] == {ACTIONS[k]: v for k, v in programme['summary']['action_counts'].items()}
     assert len(stats['action_counts']) == 5
     assert stats['action_diagnostics'] == programme['summary']['action_diagnostics']
-    assert stats['action_diagnostics']['reason_counts']['significant_observation'] == 4
+    assert stats['action_diagnostics']['reason_counts']['significant_observation'] == 0
     assert stats['action_diagnostics']['structural_group_extent']['min_pct'] == 1
     assert sum(stats['action_diagnostics']['reason_counts'].values()) == 5
     export = client.get(base + '/export', headers=headers['viewer'])
@@ -54,9 +54,9 @@ def test_proportionate_actions_reconcile_across_live_views_exports_and_snapshot(
     client, headers, sessions = api
     examples = [
         ('MINOR', {'Minor longitudinal cracking': .4}, {}, 'no_action_indicated'),
-        ('WATCH', {'Alligator cracking': .2}, {}, 'monitor'),
+        ('WATCH', {'Alligator cracking': 2}, {}, 'monitor'),
         ('APPRAISE', {'Moderate fretting': 6}, {}, 'treatment_appraisal'),
-        ('ASSESS', {'Severe pothole': .01}, {}, 'engineer_assessment'),
+        ('ASSESS', {'Alligator cracking': 30}, {'rag_band': 'Amber'}, 'engineer_assessment'),
         ('VALIDATE', {'Minor longitudinal cracking': .2}, {'defect_evidence_complete': None}, 'evidence_validation'),
     ]
     with sessions() as db:
@@ -72,7 +72,7 @@ def test_proportionate_actions_reconcile_across_live_views_exports_and_snapshot(
         db.commit()
     base = f'/vaisala/surveys/{survey_id}'
     programme = client.get(base + '/programme', headers=headers['viewer']).json()
-    assert programme['model_version'] == 'vaisala-programme-v2'
+    assert programme['model_version'] == 'vaisala-programme-v3'
     assert programme['summary']['action_counts'] == {action: 1 for action in ACTIONS}
     lookup = {r['section_ref']: r for r in programme['items']}
     for ref, _, _, action in examples:
@@ -96,7 +96,7 @@ def test_proportionate_actions_reconcile_across_live_views_exports_and_snapshot(
     assert next(r for r in revised['items'] if r['section_ref'] == 'MINOR')['recommended_action'] == 'monitor'
     frozen = client.get(base + f"/programmes/{snapshot['id']}", headers=headers['viewer']).json()
     assert frozen['items'] == snapshot['items']
-    assert client.get('/health').json()['vaisala_action_model'] == 'vaisala-programme-v2'
+    assert client.get('/health').json()['vaisala_action_model'] == 'vaisala-programme-v3'
 
 
 def test_old_policy_is_available_without_enabling_monitoring(api, survey):

@@ -20,15 +20,15 @@ def row(id=1, **changes):
 
 @pytest.mark.parametrize('changes,expected', [
     ({}, 'no_action_indicated'),
-    ({'structural_pct': .1}, 'engineer_assessment'),
-    ({'edge_pct': .1, 'defect_evidence_complete': None}, 'engineer_assessment'),
+    ({'structural_pct': .1}, 'evidence_validation'),
+    ({'edge_pct': .1, 'defect_evidence_complete': None}, 'evidence_validation'),
     ({'dressing_pct': 5, 'priority_score': 1}, 'treatment_appraisal'),
-    ({'localised_pct': .1}, 'engineer_assessment'),
+    ({'localised_pct': .1}, 'no_action_indicated'),
     ({'defect_evidence_complete': None}, 'evidence_validation'),
     ({'qc_reliability_pct': 84.9}, 'evidence_validation'),
-    ({'priority_score': 2, 'rag_band': 'Amber'}, 'engineer_assessment'),
+    ({'priority_score': 2, 'rag_band': 'Amber'}, 'evidence_validation'),
     ({'priority_score': None}, 'evidence_validation'),
-    ({'structural_pct': None, 'observed_defect_groups': ['structural_pct']}, 'engineer_assessment'),
+    ({'structural_pct': None, 'observed_defect_groups': ['structural_pct']}, 'evidence_validation'),
 ])
 def test_routing(changes, expected):
     result = programme_item(row(**changes), survey_id=1, policy=DEFAULT_POLICY)
@@ -48,8 +48,9 @@ def test_individual_edge_evidence_survives_missing_aggregate(use_driver):
     defect = next(iter(EDGE_KEYS))
     changes = {'primary_defect': defect, 'primary_defect_contribution': .1} if use_driver else {'defect_proportions': {defect: 2}}
     result = programme_item(row(edge_pct=None, **changes), survey_id=1, policy=DEFAULT_POLICY)
-    assert result['recommended_action'] == 'engineer_assessment'
-    assert result['reason_codes'] == ['edge_observed']
+    assert result['recommended_action'] == 'evidence_validation'
+    assert result['reason_codes'] == ['evidence_limited']
+    assert result['treatment_assessment']['local_defect_flags'][0]['defect'] == defect
     assert 'validate_evidence' in result['prerequisite_tasks']
     assert defect in ' '.join(result['treatment_assessment']['evidence'])
 

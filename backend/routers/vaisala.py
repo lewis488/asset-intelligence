@@ -132,6 +132,7 @@ def _interval_to_section_dict(iv, survey_id: int) -> dict:
         "to_m": iv.to_m,
         "source_score_valid": iv.interval_score is not None,
         "defect_evidence_complete": getattr(iv, 'defect_evidence_complete', None),
+        "defect_proportions": _interval_extras(iv).get('defect_proportions'),
         "road_name": iv.road_name,
         "net_reference": iv.net_reference,
         "urban_rural": iv.urban_rural,
@@ -391,6 +392,14 @@ def _build_view_rows(db: Session, survey_id: int, merge_scale: str, split: str, 
                 row['chunk_label'] = 'Section assessment derived from available intervals'
                 row['from_m'] = row['to_m'] = None
             rows.extend(recovered)
+    from services.vaisala_section_appraisal import attach_local_locations
+    if any(row.get('assessment_scope', 'section') == 'section' for row in rows):
+        interval_evidence = db.query(VaisalaInterval).filter_by(survey_id=survey_id).all()
+        attach_local_locations(rows, [dict(id=iv.id, section_ref=iv.section_ref,
+            net_reference=iv.net_reference, from_m=iv.from_m, to_m=iv.to_m,
+            interval_score=iv.interval_score, primary_defect=iv.primary_defect,
+            primary_defect_contribution=iv.primary_defect_contribution,
+            extras_json=iv.extras_json) for iv in interval_evidence])
     section_ids = {}
     if assess:
         from services.vaisala_programme import programme_item
@@ -837,7 +846,7 @@ def export_csv(
                     seen[k] = None
                     extras_labels.append(k)
 
-    labels = [label for label, _ in layout] + extras_labels
+    labels = [label for label, _ in layout] + ['Local defect review', 'Local defect locations (JSON)'] + extras_labels
 
     safe_name = survey.source_filename.rsplit(".", 1)[0].replace(" ", "_")
     scale_part = "" if merge_scale == "section" else f"_{merge_scale}"
@@ -849,7 +858,11 @@ def export_csv(
         row_out = {label: s.get(key) for label, key in layout}
         extras = s.get("extras") or {}
         for k in extras_labels:
-            row_out[k] = extras.get(k)
+            value = extras.get(k)
+            row_out[k] = json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else value
+        flags = (s.get('treatment_assessment') or {}).get('local_defect_flags') or []
+        row_out['Local defect review'] = '; '.join(f['defect'] for f in flags)
+        row_out['Local defect locations (JSON)'] = json.dumps(flags, ensure_ascii=False)
         return row_out
 
     if format == "csv":
@@ -917,6 +930,22 @@ def export_csv(
         ws.column_dimensions[col_letter].width = 22
 
     if format == "xlsx":
+        local_ws = wb.create_sheet('Local defect review')
+        local_ws.append(['NSG section', 'Defect', 'Section measure (%)', 'Sub-section reference',
+                         'From (m)', 'To (m)', 'Interval measure (%)', 'Location status'])
+        for s in rows:
+            for flag in (s.get('treatment_assessment') or {}).get('local_defect_flags') or []:
+                for location in flag.get('locations') or [{}]:
+                    local_ws.append([s.get('section_ref'), flag['defect'], flag.get('section_measure_pct'),
+                        location.get('net_reference'), location.get('from_m'), location.get('to_m'),
+                        location.get('interval_measure_pct'), flag.get('location_status')])
+        local_ws.freeze_panes = 'A2'
+        # Excel cells are limited to 32,767 characters; the separate sheet above
+        # preserves every location even when a large section exceeds that limit.
+        location_column = labels.index('Local defect locations (JSON)') + 1
+        for cells in ws.iter_rows(min_row=2, min_col=location_column, max_col=location_column):
+            if cells[0].value and len(cells[0].value) >= 32767:
+                cells[0].value = 'See Local defect review worksheet for complete locations'
         stream = io.BytesIO()
         wb.save(stream)
         stream.seek(0)

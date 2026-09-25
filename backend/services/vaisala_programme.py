@@ -5,8 +5,9 @@ import json
 
 from services.vaisala_treatments import assess_treatments, add_priority_percentiles, _number
 from services.vaisala_action_rules import proportionate_action
+from services.vaisala_section_appraisal import section_action, local_defect_flags
 
-MODEL_VERSION = 'vaisala-programme-v2'
+MODEL_VERSION = 'vaisala-programme-v3'
 LEGACY_DEFAULT_POLICY = dict(version='vaisala-programme-default-v1', localised_threshold_pct=5,
                       surface_threshold_pct=5, qc_adequacy_pct=85, automatic_monitoring_enabled=False)
 DEFAULT_POLICY = dict(version='vaisala-programme-default-v2', localised_threshold_pct=5,
@@ -21,6 +22,10 @@ ACTIONS = {
     'no_action_indicated': 'No intervention indicated by this survey',
 }
 BRIEFS = {
+    'section_acceptable': ('Section maintenance: acceptable within the authority screening tolerance; no section-wide intervention indicated. Local defect flags require separate review and remain subject to routine safety inspection.', 'Do local inspections or subsequent surveys identify a change?'),
+    'section_monitor': ('Section maintenance: deterioration is below the maintenance appraisal triggers. Record a monitoring review. Assess local defect flags separately under authority inspection policy.', 'Who will review change in section condition, and when?'),
+    'section_appraisal': ('Section maintenance: compare proportionate maintenance options for the observed extent. Confirm local defect locations, mechanism and repair needs before selecting a treatment; the full section is not a repair quantity.', 'Which maintenance option addresses the observed extent once local prerequisites are confirmed?'),
+    'section_investigation': ('Section maintenance: elevated section condition and structural-associated or edge extent warrant engineering assessment. Confirm mechanism, support and affected lengths before selecting an intervention.', 'What investigation is needed to appraise the affected lengths?'),
     'mixed_deterioration': ('Surface or localised deterioration reaches its appraisal trigger alongside structural-associated or edge observations. Resolve the mixed defect mechanism and locations before appraising treatment.', 'Can targeted repairs address the local concerns before a surface option is considered?'),
     'significant_observation': ('Review the significant defect observation at its recorded location, even where its section-average extent is small. Establish local severity, mechanism and any response required under authority inspection policy.', 'What local investigation or response is warranted by this observation?'),
     'local_condition_concern': ('Review the recorded condition concern, including any worse interval within the section. Establish the affected location and extent before selecting an action; the whole section is not a repair quantity.', 'Does the local evidence require investigation or a targeted maintenance option?'),
@@ -78,7 +83,10 @@ def programme_item(row: dict, *, survey_id: int, policy: dict) -> dict:
     flags = assessment['evidence_flags']
     limited = not flags['complete_readings'] or not flags['qc_adequate']
     action_evidence = {}
-    if policy['routing_rules'] == 'severity_extent_v2':
+    if source.get('assessment_scope', 'section') == 'section':
+        action, reason, action_evidence = section_action(source, flags, policy)
+        limited = action == 'evidence_validation' or limited
+    elif policy['routing_rules'] == 'severity_extent_v2':
         action, reason, action_evidence = proportionate_action(source, flags, policy)
         if action == 'evidence_validation':
             limited = True
@@ -123,6 +131,20 @@ def programme_item(row: dict, *, survey_id: int, policy: dict) -> dict:
     evidence_status = 'conflicting' if reason == 'evidence_conflict' else ('limited' if limited else 'adequate')
     # Keep candidates reusable, while avoiding contradictory old action headings.
     assessment = {**assessment, 'action': ACTIONS[action], 'reason': brief}
+    if scope == 'section':
+        local_flags = source.get('local_defect_flags', local_defect_flags(source))
+        assessment = {**assessment, 'maintenance_scope': 'section', 'local_defect_flags': local_flags,
+            'action_evidence': action_evidence,
+            'screening_basis': 'Section maintenance and local defect review are separate. Extents are weighted survey measures, not unique damaged lengths. Most-severe interval exports are not averages of the original 5 m readings. Authority thresholds are provisional screening policy, not CVI indices.'}
+        if action == 'evidence_validation':
+            assessment['candidates'] = []
+        if action == 'treatment_appraisal':
+            assessment['candidates'] = [dict(name='Appraise maintenance for the affected extent', status='conditional',
+                rationale=brief, prerequisites=['Review local defect flags and source imagery.',
+                'Confirm repair depth, pavement support, drainage and suitable surface options at site.',
+                'Compare targeted repair and wider maintenance under authority policy.'],
+                cautions=['A Green section can still contain local defects requiring attention.',
+                          'No specific treatment or whole-section repair quantity is prescribed.'])]
     result = {**source, 'survey_id': survey_id, 'item_key': key, 'assessment_scope': scope,
             'model_version': MODEL_VERSION, 'policy_version': policy['version'],
             'recommended_action': action, 'action_label': ACTIONS[action], 'reason_codes': [reason],

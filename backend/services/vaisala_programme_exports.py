@@ -98,8 +98,14 @@ def export_programme(programme: dict, *, format: str) -> bytes:
         sheet = workbook.create_sheet(title)
         sheet.append(FIELDS)
         action_sheets[action] = sheet
+    overflow = []
     for item in programme["items"]:
         row = _flat_item(item, programme)
+        for index, value in enumerate(row):
+            if isinstance(value, str) and len(value) > 32767:
+                overflow.extend([item['item_key'], FIELDS[index], part // 30000 + 1, value[part:part + 30000]]
+                                for part in range(0, len(value), 30000))
+                row[index] = 'See Evidence continuation; concatenate parts in order for this item and field'
         all_items.append(row)
         action_sheets[item.get("review", {}).get("client_action") or item["recommended_action"]].append(row)
     methodology = workbook.create_sheet("Methodology")
@@ -107,6 +113,23 @@ def export_programme(programme: dict, *, format: str) -> bytes:
         methodology.append([note])
     methodology.append(["Policy", _cell(programme.get("policy", {}))])
     methodology.append(["Cohorts", _cell(programme.get("cohorts", []))])
+    locations = workbook.create_sheet('Local defect review')
+    locations.append(['Item key', 'NSG section', 'Defect', 'Sub-section reference', 'From (m)', 'To (m)',
+                      'Interval measure (%)', 'Location status'])
+    for item in programme['items']:
+        for flag in (item.get('treatment_assessment') or {}).get('local_defect_flags') or []:
+            for location in flag.get('locations') or [{}]:
+                locations.append([_cell(value) for value in [item['item_key'], item.get('section_ref'),
+                    flag['defect'], location.get('net_reference'), location.get('from_m'), location.get('to_m'),
+                    location.get('interval_measure_pct'), flag.get('location_status')]])
+    if overflow:
+        from openpyxl.cell import WriteOnlyCell
+        continuation = workbook.create_sheet('Evidence continuation')
+        continuation.append(['Item key', 'Field', 'Part', 'Text (concatenate parts)'])
+        for row in overflow:
+            text_cell = WriteOnlyCell(continuation, value=row[3])
+            text_cell.data_type = 's'
+            continuation.append([_cell(value) for value in row[:3]] + [text_cell])
     output = io.BytesIO()
     workbook.save(output)
     return output.getvalue()
