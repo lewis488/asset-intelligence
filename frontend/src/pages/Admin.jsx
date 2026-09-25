@@ -90,6 +90,55 @@ function AdminModal({ kind, editedUser, authorities, onClose, onSave }) {
   )
 }
 
+function PasswordResetModal({ targetUser, onClose, onSaved }) {
+  const dialog = useRef(null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  useEffect(() => {
+    const element = dialog.current
+    element.showModal()
+    return () => element.close()
+  }, [])
+  const submit = async event => {
+    event.preventDefault()
+    if (saving) return
+    setError('')
+    if (newPassword !== confirmPassword) { setError('Passwords do not match.'); return }
+    if (new TextEncoder().encode(newPassword).length > 72) { setError('Password must be at most 72 UTF-8 bytes.'); return }
+    setSaving(true)
+    try {
+      await adminApi.resetUserPassword(targetUser.id, newPassword)
+      onSaved()
+    } catch (err) { setError(errorMessage(err)); setSaving(false) }
+  }
+  return (
+    <dialog ref={dialog} className="admin-modal" aria-labelledby="pwd-reset-title"
+      onCancel={event => { event.preventDefault(); if (!saving) onClose() }}>
+      <div className="admin-toolbar">
+        <h2 id="pwd-reset-title">Reset password</h2>
+        <button type="button" className="btn btn-secondary btn-sm" aria-label="Close dialog" disabled={saving} onClick={onClose}>×</button>
+      </div>
+      <p className="admin-help">Setting new password for <strong>{targetUser.email}</strong>.</p>
+      {error && <div className="alert alert-error" role="alert">{error}</div>}
+      <form onSubmit={submit}>
+        <fieldset disabled={saving}>
+          <div className="form-group"><label htmlFor="new-password">New password</label>
+            <input autoFocus id="new-password" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength={8} maxLength={72} autoComplete="new-password" />
+            <p className="admin-help">At least 8 characters.</p></div>
+          <div className="form-group"><label htmlFor="confirm-password">Confirm password</label>
+            <input id="confirm-password" type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required minLength={8} maxLength={72} autoComplete="new-password" /></div>
+          <div className="admin-modal-actions">
+            <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+            <button className="btn btn-primary" type="submit">{saving ? 'Saving…' : 'Reset password'}</button>
+          </div>
+        </fieldset>
+      </form>
+    </dialog>
+  )
+}
+
 export default function Admin() {
   const { user, token, login, logout } = useAuth()
   const [tab, setTab] = useState('Authorities')
@@ -99,6 +148,7 @@ export default function Admin() {
   const [notice, setNotice] = useState('')
   const [modal, setModal] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [passwordResetTarget, setPasswordResetTarget] = useState(null)
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try {
@@ -196,6 +246,7 @@ export default function Admin() {
                   <td>{entry.email}</td><td>{authorityNames.get(entry.authority_id) ?? `Authority ${entry.authority_id}`}</td>
                   <td>{entry.role}</td><td><span className={`badge ${entry.is_active ? 'badge-Green' : 'badge-Unknown'}`}>{entry.is_active ? 'Active' : 'Inactive'}</span></td>
                   <td><div className="admin-row-actions"><button className="btn btn-secondary btn-sm" aria-label={`Edit ${entry.email}`} onClick={() => setModal({ kind: 'user', editedUser: entry })}>Edit</button>
+                    <button className="btn btn-secondary btn-sm" aria-label={`Reset password for ${entry.email}`} onClick={() => setPasswordResetTarget(entry)}>Reset password</button>
                     <button type="button" className="btn btn-secondary btn-sm admin-delete-button" aria-label={`Delete ${entry.email}`} disabled={entry.id === user.id} title={entry.id === user.id ? 'You cannot delete your own account' : undefined} onClick={() => setDeleteTarget({ kind: 'user', user: entry })}>Delete</button></div></td>
                 </tr>)}{!users.length && <tr><td colSpan={5}>No users yet. Add a user to grant access.</td></tr>}</tbody>
               </table></div>
@@ -208,6 +259,7 @@ export default function Admin() {
           </>}
       </div>
       {modal && <AdminModal {...modal} authorities={authorities} onClose={() => setModal(null)} onSave={saved} />}
+      {passwordResetTarget && <PasswordResetModal targetUser={passwordResetTarget} onClose={() => setPasswordResetTarget(null)} onSaved={() => { setPasswordResetTarget(null); setNotice('Password updated.') }} />}
       {deleteTarget && <AdminDeleteDialog target={deleteTarget} onClose={() => setDeleteTarget(null)} onDelete={deleteItem} />}
     </div>
   )

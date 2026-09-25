@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models.user import Authority, User
 from routers.auth import require_admin
-from schemas.admin import AuthorityCreate, AuthorityPatch, AuthorityOut, UserCreate, UserPatch, DataOverviewOut
+from schemas.admin import AuthorityCreate, AuthorityPatch, AuthorityOut, UserCreate, UserPatch, UserPasswordPatch, DataOverviewOut
 from schemas.admin import DatasetDelete, DatasetType, UploadOut
 from schemas.auth import UserOut
 from services.auth import hash_password
@@ -77,6 +77,13 @@ def update_user(user_id: int, req: UserPatch, db: Session = Depends(get_db)):
         get_or_404(db, Authority, req.authority_id)
     for field, value in req.model_dump(exclude_unset=True).items():
         setattr(user, field, value)
+    return save(db, user)
+
+
+@router.patch("/users/{user_id}/password", response_model=UserOut)
+def reset_user_password(user_id: int, req: UserPasswordPatch, db: Session = Depends(get_db)):
+    user = get_or_404(db, User, user_id)
+    user.hashed_password = hash_password(req.new_password)
     return save(db, user)
 
 

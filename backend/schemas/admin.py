@@ -59,6 +59,16 @@ class UserPatch(PatchInput):
     is_active: bool | None = Field(default=None, strict=True)
 
 
+class UserPasswordPatch(AdminInput):
+    new_password: str = Field(min_length=8, max_length=72)
+
+    @model_validator(mode="after")
+    def password_byte_limit(self):
+        if len(self.new_password.encode("utf-8")) > 72:
+            raise ValueError("Password must be at most 72 UTF-8 bytes")
+        return self
+
+
 class DatasetOut(BaseModel):
     record_count: int
     last_upload_date: datetime | None

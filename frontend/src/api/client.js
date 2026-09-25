@@ -34,6 +34,7 @@ export const adminApi = {
   users: () => api.get('/admin/users'),
   createUser: data => api.post('/admin/users', data),
   updateUser: (id, data) => api.patch(`/admin/users/${id}`, data),
+  resetUserPassword: (id, newPassword) => api.patch(`/admin/users/${id}/password`, { new_password: newPassword }),
   dataOverview: () => api.get('/admin/data-overview'),
   deleteAuthority: id => api.delete(`/admin/authorities/${id}`),
   deleteUser: id => api.delete(`/admin/users/${id}`),
