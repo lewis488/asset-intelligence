@@ -6,8 +6,11 @@ The [action programme](vaisala-action-programme.md) supplies the client workflow
 with separate evidence-validation and engineering queues, immutable saved assessments
 and recorded client decisions. All current client views use its five action categories
 and active authority policy. The rules below describe the internal candidate screening
-service; client zero-observation outcomes are labelled No intervention indicated by
-this survey, and monitoring requires a client review decision.
+service, not the final action routing. Programme v2 allows adequately evidenced minor
+observations to qualify for no intervention and automatically routes eligible limited
+deterioration to monitoring. Programme routing removes construction candidates from
+both outcomes. See the action programme documentation for the ordered rules and
+provisional authority thresholds; existing v1 policies retain their original routing.
 
 ## Scope
 

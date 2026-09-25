@@ -24,7 +24,7 @@ const baseItem = { assessment_scope: 'section', urban_rural: null, length_basis:
   review: { sequence: 0, status: 'unreviewed', client_action: null, comment: '', assignee: '' },
 }
 
-async function setup(t, role = 'manager', extraCount = 0) {
+async function setup(t, role = 'manager', extraCount = 0, proportionate = false) {
   const context = await browser.newContext({ acceptDownloads: true }); t.after(() => context.close())
   await context.addInitScript(role => {
     localStorage.setItem('ai_token', 'test')
@@ -40,7 +40,13 @@ async function setup(t, role = 'manager', extraCount = 0) {
     { ...baseItem, item_key: 'clear', section_ref: 'CLEAR', recommended_action: 'no_action_indicated', brief: 'Continue existing inspections.', priority_score: 0, rag_band: 'Green', queue_rank: null },
   ]
   for (let n = 0; n < extraCount; n++) items.push({ ...baseItem, item_key: `extra-${n}`, section_ref: `EXTRA-${n}`, recommended_action: 'engineer_assessment', brief: 'Review recorded defects.' })
+  if (proportionate) items.push({ ...baseItem, item_key: 'watch', section_ref: 'WATCH',
+    recommended_action: 'monitor', queue_rank: null, brief: 'Arrange a documented review under authority inspection policy.',
+    treatment_assessment: { ...baseItem.treatment_assessment, action: 'Monitor observed deterioration', candidates: [] } })
   const summary = { total_items: items.length, known_length_m: 300 + extraCount * 100, unresolved_extents: 1, action_counts: Object.fromEntries(actions.map(a => [a, items.filter(i => i.recommended_action === a).length])), action_lengths_m: { engineer_assessment: 100 + extraCount * 100, evidence_validation: 0, treatment_appraisal: 100, monitor: 0, no_action_indicated: 100 } }
+  if (proportionate) summary.action_diagnostics = { model_version: 'vaisala-programme-v2', total_items: 5,
+    reason_counts: { minor_acceptable: 1, limited_deterioration: 1, candidate_trigger: 1, significant_observation: 1, evidence_limited: 1 },
+    incomplete_readings_count: 1, limited_qc_count: 0 }
   function payload(url, snapshot = false) {
     let filtered = items.filter(i => (!url.searchParams.get('action') || (i.review.client_action || i.recommended_action) === url.searchParams.get('action')) && (!url.searchParams.get('search') || i.section_ref.toLowerCase().includes(url.searchParams.get('search').toLowerCase())) && (!url.searchParams.get('scale') || i.assessment_scope === url.searchParams.get('scale')) && (!url.searchParams.get('evidence_status') || i.evidence_status === url.searchParams.get('evidence_status')) && (!url.searchParams.get('review_status') || i.review.status === url.searchParams.get('review_status')))
     const currentSummary = { ...summary, current_action_counts: Object.fromEntries(actions.map(a => [a, items.filter(i => (i.review.client_action || i.recommended_action) === a).length])) }
@@ -90,7 +96,7 @@ test('queues reconcile, unknown scores stay visible, filters preserve programme 
   await page.getByText('4 assessed records').waitFor()
   await page.getByText('1 unresolved extents', { exact: true }).waitFor()
   await page.getByRole('button', { name: /^Monitor observed deterioration \(0\)/ }).click()
-  await page.getByText(/Monitoring requires a documented client decision/).waitFor()
+  await page.getByText(/Record who will review the observed deterioration/).waitFor()
   await page.getByText(/No records match these filters/).waitFor()
   await page.getByRole('button', { name: /^Validate evidence/ }).click()
   await page.getByRole('button', { name: 'UNKNOWN', exact: true }).waitFor()
@@ -110,6 +116,19 @@ test('queues reconcile, unknown scores stay visible, filters preserve programme 
   assert.equal(await detail.getByText('Next action: Inspect', { exact: true }).count(), 0)
   await detail.getByText('Localised deeper repair', { exact: true }).click()
   await detail.getByText('Confirm repair depth.', { exact: true }).waitFor()
+})
+
+test('proportionate diagnostics explain minor acceptance and automatic monitoring', async t => {
+  const { page } = await setup(t, 'manager', 0, true)
+  await page.getByText('Why these actions?', { exact: true }).click()
+  await page.getByText(/Minor observations within the policy acceptable extent/).waitFor()
+  await page.getByText(/Thresholds are provisional authority screening choices/).waitFor()
+  assert.equal(await page.getByText(/No automatic monitoring rule is enabled/).count(), 0)
+  await page.getByRole('button', { name: /^Monitor observed deterioration \(1\)/ }).click()
+  await page.getByRole('button', { name: 'WATCH', exact: true }).click()
+  const detail = page.getByRole('region', { name: 'Programme item detail' })
+  await detail.getByText('Model recommendation: Monitor observed deterioration').waitFor()
+  assert.equal(await detail.getByText('Localised deeper repair', { exact: true }).count(), 0)
 })
 
 test('saved review workflow retains model action, handles conflicts, exports correct scope', async t => {

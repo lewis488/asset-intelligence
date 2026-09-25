@@ -148,7 +148,7 @@ def test_policy_validation_pinning_and_authority_isolation(api, survey):
     client, headers, sessions = api
     path = f"/vaisala/surveys/{survey}/programme/policies"
     assert client.post(path, headers=headers["manager"], json={"version": "local-v1"}).status_code == 403
-    for changes in ({"automatic_monitoring_enabled": True}, {"red_threshold": 2}, {"qc_adequacy_pct": 84}, {"surface_threshold_pct": 101}):
+    for changes in ({"automatic_monitoring_enabled": "yes"}, {"red_threshold": 2}, {"qc_adequacy_pct": 84}, {"surface_threshold_pct": 101}, {"acceptable_minor_extent_pct": 6}):
         assert client.post(path, headers=headers["admin"], json={"version": "bad", **changes}).status_code == 422
     policy = client.post(path, headers=headers["admin"], json={"version": "local-v1", "surface_threshold_pct": 8})
     assert policy.status_code == 201, policy.text
@@ -162,7 +162,7 @@ def test_policy_validation_pinning_and_authority_isolation(api, survey):
         other = VaisalaSurvey(authority_id=2, source_filename="other.csv", source_format="csv", network_key="other")
         db.add(other); db.commit(); other_id = other.id
     other_path = f"/vaisala/surveys/{other_id}/programme"
-    assert client.get(other_path, headers=headers["admin"]).json()["policy_version"] == "vaisala-programme-default-v1"
+    assert client.get(other_path, headers=headers["admin"]).json()["policy_version"] == "vaisala-programme-default-v2"
     assert client.get(other_path, headers=headers["admin"], params={"policy_version": "local-v1"}).status_code == 404
 
 

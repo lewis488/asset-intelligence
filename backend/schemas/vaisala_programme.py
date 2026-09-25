@@ -16,7 +16,11 @@ class ProgrammePolicy(StrictInput):
     localised_threshold_pct: float = Field(default=5, ge=0, le=100, allow_inf_nan=False)
     surface_threshold_pct: float = Field(default=5, ge=0, le=100, allow_inf_nan=False)
     qc_adequacy_pct: float = Field(default=85, ge=85, le=100, allow_inf_nan=False)
-    automatic_monitoring_enabled: Literal[False] = False
+    automatic_monitoring_enabled: bool = Field(default=True, strict=True)
+    routing_rules: Literal['legacy_v1', 'severity_extent_v2'] = 'severity_extent_v2'
+    acceptable_minor_extent_pct: float = Field(default=1, ge=0, le=100, allow_inf_nan=False)
+    structural_assessment_pct: float = Field(default=5, ge=0, le=100, allow_inf_nan=False)
+    edge_assessment_pct: float = Field(default=5, ge=0, le=100, allow_inf_nan=False)
 
 
 class SaveProgramme(StrictInput):

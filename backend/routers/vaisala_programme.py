@@ -19,7 +19,7 @@ from models.vaisala_programme import (
 from routers.auth import get_current_user, require_admin, require_contributor
 from routers.vaisala import _build_view_rows, _get_survey, _validate_view_params
 from schemas.vaisala_programme import Action, ProgrammeItem, ProgrammePolicy, ProgrammeResponse, ReviewInput, SaveProgramme
-from services.vaisala_programme import ACTIONS, DEFAULT_POLICY, _coverage, build_programme, validate_policy
+from services.vaisala_programme import ACTIONS, DEFAULT_POLICY, LEGACY_DEFAULT_POLICY, _coverage, build_programme, validate_policy
 from services.vaisala_programme_exports import export_programme
 
 router = APIRouter(prefix="/vaisala", tags=["vaisala-programme"])
@@ -35,6 +35,8 @@ def _survey(db, survey_id, user):
 def _policy(db, authority_id, version=None):
     if version == DEFAULT_POLICY["version"]:
         return dict(DEFAULT_POLICY)
+    if version == LEGACY_DEFAULT_POLICY['version']:
+        return validate_policy(LEGACY_DEFAULT_POLICY)
     query = db.query(VaisalaProgrammePolicy).filter_by(authority_id=authority_id)
     if version:
         record = query.filter_by(version=version).first()
@@ -191,14 +193,17 @@ def list_policies(survey_id: int, db: Session = Depends(get_db), user: User = De
     survey = _survey(db, survey_id, user)
     records = db.query(VaisalaProgrammePolicy).filter_by(authority_id=survey.authority_id).order_by(VaisalaProgrammePolicy.id.desc()).all()
     return {"active_version": records[0].version if records else DEFAULT_POLICY["version"],
-            "policies": [record.policy for record in records] + [dict(DEFAULT_POLICY)]}
+            "policies": [validate_policy(record.policy) for record in records] + [dict(DEFAULT_POLICY), validate_policy(LEGACY_DEFAULT_POLICY)]}
 
 
 @router.post("/surveys/{survey_id}/programme/policies", status_code=201)
 def create_policy(survey_id: int, body: ProgrammePolicy, db: Session = Depends(get_db), user: User = Depends(require_admin)):
     survey = _survey(db, survey_id, user)
-    policy = validate_policy(body.model_dump())
-    if policy["version"] == DEFAULT_POLICY["version"]:
+    try:
+        policy = validate_policy(body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if policy["version"] in (DEFAULT_POLICY["version"], LEGACY_DEFAULT_POLICY['version']):
         raise HTTPException(409, "The default policy version is immutable")
     record = VaisalaProgrammePolicy(authority_id=survey.authority_id, version=policy["version"], policy=policy, created_by=user.id)
     db.add(record)

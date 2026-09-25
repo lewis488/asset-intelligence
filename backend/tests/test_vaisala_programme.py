@@ -12,6 +12,9 @@ def row(id=1, **changes):
                  defect_evidence_complete=True, defect_proportions={k: 0 for k in RAG_VALIDATED_WEIGHTS},
                  qc_completeness_pct=95, qc_reliability_pct=95)
     value.update(changes)
+    if 'defect_proportions' not in changes:
+        for group, defect in [('dressing_pct', 'Severe fretting'), ('localised_pct', 'Minor pothole')]:
+            value['defect_proportions'][defect] = value[group]
     return value
 
 
@@ -80,10 +83,10 @@ def test_policy_affects_screening_not_scores():
     custom = {**DEFAULT_POLICY, 'version': 'custom', 'surface_threshold_pct': 10}
     source = row(dressing_pct=6, priority_score=1)
     result = programme_item(source, survey_id=1, policy=custom)
-    assert result['recommended_action'] == 'engineer_assessment'
+    assert result['recommended_action'] == 'monitor'
     assert result['priority_score'] == 1
     with pytest.raises(ValueError):
-        build_programme([], survey_id=1, policy={**DEFAULT_POLICY, 'automatic_monitoring_enabled': True})
+        build_programme([], survey_id=1, policy={**DEFAULT_POLICY, 'automatic_monitoring_enabled': 'yes'})
 
 
 def test_custom_qc_policy_does_not_mislabel_existing_high_band():
@@ -96,7 +99,7 @@ def test_custom_qc_policy_does_not_mislabel_existing_high_band():
 
 
 def test_zero_policy_triggers_still_require_positive_observations():
-    policy = {**DEFAULT_POLICY, 'localised_threshold_pct': 0, 'surface_threshold_pct': 0}
+    policy = {**DEFAULT_POLICY, 'localised_threshold_pct': 0, 'surface_threshold_pct': 0, 'acceptable_minor_extent_pct': 0}
     result = programme_item(row(), survey_id=1, policy=policy)
     assert result['recommended_action'] == 'no_action_indicated'
     assert result['treatment_candidates'] == []

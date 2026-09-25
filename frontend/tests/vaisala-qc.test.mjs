@@ -59,7 +59,7 @@ for (const hasQC of [true, false]) test(hasQC ? 'QC renders whole percentages' :
     assert.match(await displayed.locator('..').innerText(), /^0\s/)
   }
   await page.getByText('Why these actions?', { exact: true }).click()
-  await page.getByText(/Any positive structural-associated observation currently triggers engineer assessment/).waitFor()
+  await page.getByText(/This historical model routes any positive structural-associated observation to engineer assessment/).waitFor()
   assert.equal(await page.getByText('Investigate', { exact: true }).count(), 0)
   assert.equal(await page.getByText('Inspect', { exact: true }).count(), 0)
   if (hasQC) {

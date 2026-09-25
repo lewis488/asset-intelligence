@@ -4,10 +4,15 @@ import hashlib
 import json
 
 from services.vaisala_treatments import assess_treatments, add_priority_percentiles, _number
+from services.vaisala_action_rules import proportionate_action
 
-MODEL_VERSION = 'vaisala-programme-v1'
-DEFAULT_POLICY = dict(version='vaisala-programme-default-v1', localised_threshold_pct=5,
+MODEL_VERSION = 'vaisala-programme-v2'
+LEGACY_DEFAULT_POLICY = dict(version='vaisala-programme-default-v1', localised_threshold_pct=5,
                       surface_threshold_pct=5, qc_adequacy_pct=85, automatic_monitoring_enabled=False)
+DEFAULT_POLICY = dict(version='vaisala-programme-default-v2', localised_threshold_pct=5,
+                      surface_threshold_pct=5, qc_adequacy_pct=85, automatic_monitoring_enabled=True,
+                      routing_rules='severity_extent_v2', acceptable_minor_extent_pct=1,
+                      structural_assessment_pct=5, edge_assessment_pct=5)
 ACTIONS = {
     'engineer_assessment': 'Engineer assessment',
     'evidence_validation': 'Validate evidence / further survey',
@@ -16,6 +21,13 @@ ACTIONS = {
     'no_action_indicated': 'No intervention indicated by this survey',
 }
 BRIEFS = {
+    'mixed_deterioration': ('Surface or localised deterioration reaches its appraisal trigger alongside structural-associated or edge observations. Resolve the mixed defect mechanism and locations before appraising treatment.', 'Can targeted repairs address the local concerns before a surface option is considered?'),
+    'significant_observation': ('Review the significant defect observation at its recorded location, even where its section-average extent is small. Establish local severity, mechanism and any response required under authority inspection policy.', 'What local investigation or response is warranted by this observation?'),
+    'local_condition_concern': ('Review the recorded condition concern, including any worse interval within the section. Establish the affected location and extent before selecting an action; the whole section is not a repair quantity.', 'Does the local evidence require investigation or a targeted maintenance option?'),
+    'structural_extent': ('Structural-associated cracking reaches the policy assessment trigger. Review its location, mechanism and depth before appraising repair; this is not a diagnosis of structural failure.', 'What mechanism and affected lengths explain the recorded cracking?'),
+    'defect_types_unknown': ('Validate the individual defect types and severities before concluding that the observed deterioration is minor enough for routine inspection or monitoring.', 'Can the original readings or imagery establish the defect types and local severity?'),
+    'minor_acceptable': ('Only minor cracking or moderate fretting is recorded below the policy acceptable-extent limit. No additional condition-led intervention is indicated by this survey. Continue routine inspections; this does not establish safety or structural soundness.', 'Do subsequent inspections identify deterioration beyond the authority tolerance?'),
+    'limited_deterioration': ('Recorded deterioration is below the applicable action triggers. Arrange a documented review of the observed locations under the authority inspection policy, checking change in extent or severity and escalating if needed. Continue routine safety inspections.', 'Who will review the observed deterioration, and when under the authority inspection policy?'),
     'structural_observed': ('Review the recorded structural-associated observations. Establish the failure mechanism and depth; determine whether targeted investigation is needed before appraising repair.', 'Is deterioration confined to the surface, or does it involve deeper layers?'),
     'edge_observed': ('Inspect the recorded edge deterioration, lateral support and drainage before selecting a repair.', 'What is causing the edge deterioration and what support or drainage work is needed?'),
     'evidence_conflict': ('Reconcile the condition score with the available defect observations using the original survey evidence.', 'Which observations explain the recorded condition score?'),
@@ -32,12 +44,23 @@ def validate_policy(policy: dict) -> dict:
     result = {**DEFAULT_POLICY, **policy}
     if not isinstance(result['version'], str) or not result['version'].strip():
         raise ValueError('Policy version is required')
-    for field in ('localised_threshold_pct', 'surface_threshold_pct', 'qc_adequacy_pct'):
+    # Old stored authority policies keep their original routing until explicitly
+    # replaced; saved programmes are immutable and are never reassessed here.
+    if 'routing_rules' not in policy:
+        result['routing_rules'] = 'legacy_v1'
+    if result['routing_rules'] not in ('legacy_v1', 'severity_extent_v2'):
+        raise ValueError('Unknown routing rules')
+    for field in ('localised_threshold_pct', 'surface_threshold_pct', 'qc_adequacy_pct',
+                  'acceptable_minor_extent_pct', 'structural_assessment_pct', 'edge_assessment_pct'):
         if _number(result[field], 100) is None:
             raise ValueError(f'{field} must be a finite percentage between 0 and 100')
         result[field] = float(result[field])
-    if result['automatic_monitoring_enabled'] is not False:
-        raise ValueError('Automatic monitoring requires a separately validated rule; use a recorded client review')
+    if not isinstance(result['automatic_monitoring_enabled'], bool):
+        raise ValueError('Automatic monitoring must be a boolean')
+    if result['routing_rules'] == 'legacy_v1' and result['automatic_monitoring_enabled']:
+        raise ValueError('Automatic monitoring requires severity_extent_v2 routing')
+    if result['routing_rules'] == 'severity_extent_v2' and result['acceptable_minor_extent_pct'] > result['surface_threshold_pct']:
+        raise ValueError('Acceptable minor extent cannot exceed the surface appraisal threshold')
     if result['qc_adequacy_pct'] < 85:
         raise ValueError('QC adequacy cannot be below the existing High boundary of 85')
     return result
@@ -54,7 +77,12 @@ def programme_item(row: dict, *, survey_id: int, policy: dict) -> dict:
     assessment = assess_treatments(source, policy=policy)
     flags = assessment['evidence_flags']
     limited = not flags['complete_readings'] or not flags['qc_adequate']
-    if flags['structural_observed']:
+    action_evidence = {}
+    if policy['routing_rules'] == 'severity_extent_v2':
+        action, reason, action_evidence = proportionate_action(source, flags, policy)
+        if action == 'evidence_validation':
+            limited = True
+    elif flags['structural_observed']:
         action, reason = 'engineer_assessment', 'structural_observed'
     elif flags['edge_observed']:
         action, reason = 'engineer_assessment', 'edge_observed'
@@ -79,14 +107,27 @@ def programme_item(row: dict, *, survey_id: int, policy: dict) -> dict:
         identity.append([source.get('from_m'), source.get('to_m'), source.get('id')])
     key = hashlib.sha256(json.dumps(identity, separators=(',', ':')).encode()).hexdigest()[:32]
     brief, question = BRIEFS[reason]
-    evidence_status = 'conflicting' if flags['evidence_conflict'] else ('limited' if limited else 'adequate')
+    if reason == 'minor_acceptable':
+        brief += f" Combined minor-defect screening upper bound {action_evidence['minor_extent_upper_bound_pct']:g}% < {policy['acceptable_minor_extent_pct']:g}%; overlapping observations are not unique damaged length."
+    if reason == 'structural_extent':
+        brief += f" Policy structural assessment trigger: {policy['structural_assessment_pct']:g}%."
+    if reason == 'edge_observed' and policy['routing_rules'] == 'severity_extent_v2':
+        brief += f" Policy edge assessment trigger: {policy['edge_assessment_pct']:g}%; unknown severity still requires assessment."
+    if action in ('monitor', 'no_action_indicated'):
+        assessment = {**assessment, 'candidates': []}
+    if policy['routing_rules'] == 'severity_extent_v2':
+        assessment = {**assessment, 'screening_basis': 'Severity and extent screening uses provisional authority policy, not calibrated national intervention criteria or CVI indices. QC describes survey quality, not diagnostic certainty.',
+                      'action_evidence': action_evidence, 'action_policy': dict(policy)}
+        if reason == 'defect_types_unknown':
+            assessment = {**assessment, 'evidence_gaps': [*assessment['evidence_gaps'], 'Individual defect types are unavailable; group totals cannot establish minor-only deterioration.']}
+    evidence_status = 'conflicting' if reason == 'evidence_conflict' else ('limited' if limited else 'adequate')
     # Keep candidates reusable, while avoiding contradictory old action headings.
     assessment = {**assessment, 'action': ACTIONS[action], 'reason': brief}
     result = {**source, 'survey_id': survey_id, 'item_key': key, 'assessment_scope': scope,
             'model_version': MODEL_VERSION, 'policy_version': policy['version'],
             'recommended_action': action, 'action_label': ACTIONS[action], 'reason_codes': [reason],
             'brief': brief, 'next_question': question,
-            'prerequisite_tasks': ['validate_evidence'] if limited else [],
+            'prerequisite_tasks': (['validate_evidence'] if limited else []) + (['record_monitoring_review'] if action == 'monitor' else []),
             'evidence_status': evidence_status, 'treatment_assessment': assessment,
             'queue_rank': None, 'queue_size': 0, 'validation_order': None,
             'priority_explanation': 'No condition priority assigned.', 'review_status': 'unreviewed',
@@ -148,7 +189,7 @@ def action_diagnostics(items: list[dict]) -> dict:
                         if (v := _number(item.get(key), 100)) is not None and v > 0]
             if positive:
                 extents.append(max(positive))
-    return dict(total_items=len(items), reason_counts=counts,
+    return dict(model_version=MODEL_VERSION, total_items=len(items), reason_counts=counts,
                 incomplete_readings_count=incomplete, limited_qc_count=limited_qc,
                 structural_group_extent=dict(known_count=len(extents),
                     unknown_count=structural_total-len(extents),

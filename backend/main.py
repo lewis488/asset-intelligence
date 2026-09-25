@@ -51,4 +51,6 @@ app.include_router(vaisala_programme.router)
 
 @app.get("/health", tags=["ops"])
 def health():
-    return {"status": "ok", "environment": settings.environment, "scoring_version": settings.scoring_version}
+    from services.vaisala_programme import MODEL_VERSION
+    return {"status": "ok", "environment": settings.environment, "scoring_version": settings.scoring_version,
+            "vaisala_action_model": MODEL_VERSION}

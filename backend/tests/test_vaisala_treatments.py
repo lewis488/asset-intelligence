@@ -188,7 +188,7 @@ def test_scaled_views_keep_urban_scope_missing_evidence_and_parent_narrative(api
         for r in rural:
             assert r['assessment_scope'] == scale
             assert r['narrative_section_id'] == parent_id
-            assert r['recommended_action'] == ('Engineer assessment' if scale == '100m' or r['structural_pct'] else 'Validate evidence / further survey')
+            assert r['recommended_action'] == 'Engineer assessment'  # known Red interval still needs assessment with limited evidence
             assert r['edge_pct'] is None
             assert 'Edge deterioration' in ' '.join(r['treatment_assessment']['evidence_gaps'])
             assert r['priority_score'] == 5

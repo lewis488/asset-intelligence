@@ -8,7 +8,7 @@ const queueNotes = {
   engineer_assessment: 'Establish defect significance, mechanism, depth or edge support before selecting works.',
   evidence_validation: 'Check the supplied export and imagery first; obtain targeted verification where gaps remain.',
   treatment_appraisal: 'Compare conditional candidates after confirming site suitability and prerequisites.',
-  monitor: 'Monitoring requires a documented client decision. No automatic monitoring rule is enabled.',
+  monitor: 'Record who will review the observed deterioration and when, under authority inspection policy. Continue routine safety inspections.',
   no_action_indicated: 'Complete valid observations indicate no additional condition-led intervention; existing inspections continue.',
 }
 const emptyFilters = { action: '', search: '', scale: '', rag_band: '', evidence_status: '', review_status: '' }
