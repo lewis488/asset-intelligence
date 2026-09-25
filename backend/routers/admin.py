@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models.user import Authority, User
 from routers.auth import require_admin
-from schemas.admin import AuthorityCreate, AuthorityPatch, AuthorityOut, UserCreate, UserPatch, UserPasswordPatch, DataOverviewOut
+from schemas.admin import AuthorityCreate, AuthorityPatch, AuthorityOut, AuthorityModulesPatch, UserCreate, UserPatch, UserPasswordPatch, DataOverviewOut
 from schemas.admin import DatasetDelete, DatasetType, UploadOut
 from schemas.auth import UserOut
 from services.auth import hash_password
@@ -51,6 +51,13 @@ def update_authority(authority_id: int, req: AuthorityPatch, db: Session = Depen
     authority = get_or_404(db, Authority, authority_id)
     for field, value in req.model_dump(exclude_unset=True).items():
         setattr(authority, field, value)
+    return save(db, authority)
+
+
+@router.patch("/authorities/{authority_id}/modules", response_model=AuthorityOut)
+def update_authority_modules(authority_id: int, req: AuthorityModulesPatch, db: Session = Depends(get_db)):
+    authority = get_or_404(db, Authority, authority_id)
+    authority.enabled_modules = req.enabled_modules
     return save(db, authority)
 
 

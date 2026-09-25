@@ -1,4 +1,5 @@
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, true
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -11,6 +12,7 @@ class Authority(Base):
     name = Column(String, nullable=False)
     slug = Column(String, nullable=True, unique=True)
     region = Column(String)
+    enabled_modules = Column(JSONB, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
     users = relationship("User", back_populates="authority")
@@ -30,3 +32,7 @@ class User(Base):
     created_at = Column(DateTime, server_default=func.now())
 
     authority = relationship("Authority", back_populates="users")
+
+    @property
+    def enabled_modules(self):
+        return self.authority.enabled_modules if self.authority else None

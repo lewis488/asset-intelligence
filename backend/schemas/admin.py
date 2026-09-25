@@ -33,11 +33,27 @@ class AuthorityPatch(PatchInput):
     region: Name | None = None
 
 
+VALID_MODULES = {"dashboard", "upload", "analysis", "query", "vaisala", "my-data"}
+
+
 class AuthorityOut(BaseModel):
     id: int
     name: str
     region: str | None
+    enabled_modules: list[str] | None = None
     model_config = ConfigDict(from_attributes=True)
+
+
+class AuthorityModulesPatch(AdminInput):
+    enabled_modules: list[str] | None
+
+    @model_validator(mode="after")
+    def validate_modules(self):
+        if self.enabled_modules is not None:
+            invalid = set(self.enabled_modules) - VALID_MODULES
+            if invalid:
+                raise ValueError(f"Invalid module keys: {sorted(invalid)}")
+        return self
 
 
 class UserCreate(AdminInput):

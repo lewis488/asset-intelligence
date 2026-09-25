@@ -5,7 +5,16 @@ import DatasetGrid from '../components/DatasetGrid'
 import { AdminDeleteDialog, AdminUploadList, adminErrorMessage as errorMessage } from '../components/AdminDeletion'
 import '../styles/admin.css'
 
-const TABS = ['Authorities', 'Users', 'Data Overview']
+const TABS = ['Authorities', 'Users', 'Modules', 'Data Overview']
+
+const ALL_MODULES = [
+  { key: 'dashboard', label: 'Dashboard' },
+  { key: 'upload',    label: 'Upload Data' },
+  { key: 'analysis',  label: 'Analysis' },
+  { key: 'query',     label: 'Query' },
+  { key: 'vaisala',   label: 'Vaisala DST' },
+  { key: 'my-data',   label: 'My Data' },
+]
 
 function AdminModal({ kind, editedUser, authorities, onClose, onSave }) {
   const dialog = useRef(null)
@@ -149,6 +158,8 @@ export default function Admin() {
   const [modal, setModal] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [passwordResetTarget, setPasswordResetTarget] = useState(null)
+  const [modulesSaving, setModulesSaving] = useState({})
+  const [modulesErrors, setModulesErrors] = useState({})
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try {
@@ -191,6 +202,24 @@ export default function Admin() {
     setNotice(kind === 'authority' ? 'Authority created.' : 'User saved.')
   }
 
+  const toggleModule = async (authority, moduleKey) => {
+    const current = authority.enabled_modules ?? ALL_MODULES.map(m => m.key)
+    const next = current.includes(moduleKey)
+      ? current.filter(k => k !== moduleKey)
+      : [...current, moduleKey]
+    const payload = next.length === ALL_MODULES.length ? null : next
+    setModulesSaving(s => ({ ...s, [authority.id]: true }))
+    setModulesErrors(s => ({ ...s, [authority.id]: '' }))
+    try {
+      const { data } = await adminApi.updateAuthorityModules(authority.id, payload)
+      setInventory(prev => ({ ...prev, authorities: prev.authorities.map(a => a.id === authority.id ? data : a) }))
+    } catch (err) {
+      setModulesErrors(s => ({ ...s, [authority.id]: errorMessage(err) }))
+    } finally {
+      setModulesSaving(s => ({ ...s, [authority.id]: false }))
+    }
+  }
+
   const selectTab = next => { setTab(next); setNotice('') }
   const tabKeyDown = event => {
     const index = TABS.indexOf(tab)
@@ -226,6 +255,7 @@ export default function Admin() {
             <div className="admin-toolbar">
               <div><h2>{tab}</h2><p className="admin-help">{tab === 'Authorities' ? 'Dataset count is the number of dataset types with stored records.'
                 : tab === 'Users' ? 'Assign each user an authority and an access role.'
+                  : tab === 'Modules' ? 'Control which modules are visible per authority.'
                   : 'Stored records and latest upload dates, grouped by authority.'}</p></div>
               {tab === 'Authorities' && <button className="btn btn-primary" onClick={() => setModal({ kind: 'authority' })}>+ New Authority</button>}
               {tab === 'Users' && <button className="btn btn-primary" disabled={!authorities.length} onClick={() => setModal({ kind: 'user' })}>+ New User</button>}
@@ -250,6 +280,37 @@ export default function Admin() {
                     <button type="button" className="btn btn-secondary btn-sm admin-delete-button" aria-label={`Delete ${entry.email}`} disabled={entry.id === user.id} title={entry.id === user.id ? 'You cannot delete your own account' : undefined} onClick={() => setDeleteTarget({ kind: 'user', user: entry })}>Delete</button></div></td>
                 </tr>)}{!users.length && <tr><td colSpan={5}>No users yet. Add a user to grant access.</td></tr>}</tbody>
               </table></div>
+            </>}
+            {tab === 'Modules' && <>
+              <div className="admin-toolbar">
+                <div><h2>Modules</h2><p className="admin-help">Control which modules each authority can access. Unchecking a module hides it from all users in that authority.</p></div>
+              </div>
+              {!authorities.length
+                ? <p className="admin-empty">No authorities yet.</p>
+                : <div className="card admin-table-wrap"><table className="data-table" aria-label="Module access">
+                  <thead><tr>
+                    <th scope="col">Authority</th>
+                    {ALL_MODULES.map(m => <th key={m.key} scope="col">{m.label}</th>)}
+                  </tr></thead>
+                  <tbody>{authorities.map(authority => {
+                    const enabled = authority.enabled_modules ?? ALL_MODULES.map(m => m.key)
+                    const saving = modulesSaving[authority.id]
+                    const rowError = modulesErrors[authority.id]
+                    return (
+                      <tr key={authority.id}>
+                        <td><strong>{authority.name}</strong>{saving && <span className="admin-help"> Saving…</span>}{rowError && <span className="alert-error" role="alert"> {rowError}</span>}</td>
+                        {ALL_MODULES.map(m => (
+                          <td key={m.key} style={{ textAlign: 'center' }}>
+                            <label className="admin-checkbox" style={{ justifyContent: 'center' }} aria-label={`${m.label} for ${authority.name}`}>
+                              <input type="checkbox" checked={enabled.includes(m.key)} disabled={saving}
+                                onChange={() => toggleModule(authority, m.key)} />
+                            </label>
+                          </td>
+                        ))}
+                      </tr>
+                    )
+                  })}</tbody>
+                </table></div>}
             </>}
             {tab === 'Data Overview' && (overview.length ? overview.map(authority => <section className="admin-authority" key={authority.authority_id} aria-labelledby={`authority-${authority.authority_id}`}>
               <h3 id={`authority-${authority.authority_id}`}>{authority.authority_name}</h3>

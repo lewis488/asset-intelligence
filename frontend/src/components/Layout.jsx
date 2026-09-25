@@ -53,13 +53,13 @@ const Ic = {
 }
 
 const NAV = [
-  { to: '/dashboard', label: 'Dashboard',   icon: Ic.dashboard },
-  { to: '/upload',    label: 'Upload Data', icon: Ic.upload },
-  { to: '/analysis',  label: 'Analysis',    icon: Ic.analysis },
-  { to: '/query',     label: 'Query',       icon: Ic.query },
-  { to: '/vaisala',   label: 'Vaisala DST', icon: Ic.vaisala },
-  { to: '/my-data',   label: 'My Data',     icon: Ic.myData },
-  { to: '/admin',     label: 'Admin',       icon: Ic.admin, adminOnly: true },
+  { to: '/dashboard', label: 'Dashboard',   icon: Ic.dashboard, key: 'dashboard' },
+  { to: '/upload',    label: 'Upload Data', icon: Ic.upload,    key: 'upload' },
+  { to: '/analysis',  label: 'Analysis',    icon: Ic.analysis,  key: 'analysis' },
+  { to: '/query',     label: 'Query',       icon: Ic.query,     key: 'query' },
+  { to: '/vaisala',   label: 'Vaisala DST', icon: Ic.vaisala,   key: 'vaisala' },
+  { to: '/my-data',   label: 'My Data',     icon: Ic.myData,    key: 'my-data' },
+  { to: '/admin',     label: 'Admin',       icon: Ic.admin,     adminOnly: true },
 ]
 
 export default function Layout() {
@@ -79,7 +79,12 @@ export default function Layout() {
 
         {/* Nav tabs */}
         <nav className="topnav-nav">
-          {NAV.filter(item => !item.adminOnly || user?.role === 'admin').map(({ to, label, icon }) => (
+          {NAV.filter(item => {
+            if (item.adminOnly) return user?.role === 'admin'
+            if (!item.key) return true
+            const modules = user?.enabled_modules
+            return !modules || modules.includes(item.key)
+          }).map(({ to, label, icon }) => (
             <NavLink
               key={to}
               to={to}

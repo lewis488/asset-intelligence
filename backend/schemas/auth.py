@@ -16,6 +16,7 @@ class UserOut(BaseModel):
     authority_id: int
     role: str
     is_active: bool
+    enabled_modules: list[str] | None = None
     model_config = {"from_attributes": True}
 
 
